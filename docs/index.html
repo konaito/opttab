@@ -459,13 +459,12 @@ footer .fine { margin-top: 14px; font-family: var(--mono); font-size: 11.5px; }
       <span class="dot" style="background:#28c840"></span>
       <span class="title">ghostty — zsh</span>
     </div>
-    <pre><span class="p">$</span> brew install konaito/tap/opttab   <span class="c"># builds locally — no quarantine</span>
-<span class="p">$</span> cp -R "$(brew --prefix opttab)/OptTab.app" ~/Applications/
-<span class="p">$</span> open ~/Applications/OptTab.app
+    <pre><span class="p">$</span> brew install --cask konaito/tap/opttab   <span class="c"># notarized — no build needed</span>
+<span class="p">$</span> open /Applications/OptTab.app
 
-<span class="c"># or from source:</span>
-<span class="p">$</span> git clone https://github.com/konaito/opttab.git && cd opttab
-<span class="p">$</span> ./Scripts/bundle.sh && open ~/Applications/OptTab.app</pre>
+<span class="c"># or build from source:</span>
+<span class="p">$</span> brew install konaito/tap/opttab
+<span class="p">$</span> git clone https://github.com/konaito/opttab.git && cd opttab && ./Scripts/bundle.sh</pre>
   </div>
   <div class="perm-note">
     <span>⚠️</span>

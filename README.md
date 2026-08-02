@@ -40,12 +40,17 @@ current Space. OptTab switches between windows of the **active app** across
 ### Homebrew (recommended)
 
 ```bash
-brew install konaito/tap/opttab
-cp -R "$(brew --prefix opttab)/OptTab.app" ~/Applications/
-open ~/Applications/OptTab.app
+brew install --cask konaito/tap/opttab
 ```
 
-Built locally by Homebrew — no Gatekeeper quarantine.
+Notarized prebuilt app — installs straight into /Applications. No build tools needed.
+
+Prefer building locally? The tap also has a source formula:
+
+```bash
+brew install konaito/tap/opttab   # builds from source
+cp -R "$(brew --prefix opttab)/OptTab.app" ~/Applications/
+```
 
 ### From source
 
