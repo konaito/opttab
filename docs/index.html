@@ -3,8 +3,87 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OptTab — Option+Tab window switcher for macOS</title>
-<meta name="description" content="Switch between windows of the current app — across Spaces, fullscreen, and minimized. The window switcher Cmd+` should have been.">
+<title>OptTab — Option+Tab Window Switcher for macOS | Switch Windows Across Spaces</title>
+<meta name="description" content="Free open-source macOS window switcher. Option+Tab cycles windows of the current app across Spaces, fullscreen, and minimized — everything Cmd+` (Command-Backtick) can't reach. Thumbnail HUD, Homebrew install, public APIs only.">
+<meta name="keywords" content="macOS window switcher, Option Tab, Cmd backtick, switch windows between Spaces mac, same app window switcher, AltTab alternative, mission control alternative, macOS productivity, window management mac, fullscreen window switch">
+<meta name="author" content="konaito">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#0b0d12">
+<link rel="canonical" href="https://konaito.github.io/opttab/">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OptTab">
+<meta property="og:title" content="OptTab — Option+Tab Window Switcher for macOS">
+<meta property="og:description" content="Switch windows of the current app across Spaces, fullscreen, and minimized — everything Cmd+` can't reach. Free, open source, notarized.">
+<meta property="og:url" content="https://konaito.github.io/opttab/">
+<meta property="og:image" content="https://konaito.github.io/opttab/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="OptTab — Option+Tab window switcher for macOS">
+<meta property="og:locale" content="en_US">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="OptTab — Option+Tab Window Switcher for macOS">
+<meta name="twitter:description" content="Switch windows of the current app across Spaces, fullscreen, and minimized — everything Cmd+` can't reach. Free & open source.">
+<meta name="twitter:image" content="https://konaito.github.io/opttab/og.png">
+<meta name="twitter:creator" content="@konaito">
+
+<!-- Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "OptTab",
+  "operatingSystem": "macOS 14.0 or later",
+  "applicationCategory": "UtilitiesApplication",
+  "description": "Option+Tab window switcher for macOS. Switches between windows of the active app across Spaces, fullscreen, and minimized, with a thumbnail HUD.",
+  "url": "https://konaito.github.io/opttab/",
+  "downloadUrl": "https://github.com/konaito/opttab/releases",
+  "installUrl": "https://github.com/konaito/opttab#install",
+  "softwareVersion": "0.1.0",
+  "license": "https://github.com/konaito/opttab/blob/main/LICENSE",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "konaito", "url": "https://github.com/konaito" },
+  "screenshot": "https://konaito.github.io/opttab/og.png",
+  "sameAs": ["https://github.com/konaito/opttab"]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Why doesn't Cmd+` show all my windows on macOS?",
+      "acceptedAnswer": { "@type": "Answer", "text": "macOS's built-in Cmd+` shortcut (\"Move focus to next window\") only cycles windows inside the current Space. Windows on other Spaces, in fullscreen, or minimized are skipped entirely. OptTab reaches all of them." }
+    },
+    {
+      "@type": "Question",
+      "name": "How is OptTab different from AltTab?",
+      "acceptedAnswer": { "@type": "Answer", "text": "AltTab recreates Windows-style Alt-Tab across all apps. OptTab is deliberately scoped to the windows of the active app — it replaces Cmd+`, not Cmd+Tab — and uses only public macOS APIs (no private CGS calls)." }
+    },
+    {
+      "@type": "Question",
+      "name": "Does OptTab work with fullscreen apps and Spaces?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Selecting a window on another Space or in fullscreen makes macOS jump there automatically. For apps whose windows are invisible to the Accessibility API (like Chromium browsers), OptTab drives the app's own Window menu instead." }
+    },
+    {
+      "@type": "Question",
+      "name": "Does OptTab require Screen Recording permission?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Only for thumbnails. Without Screen Recording permission OptTab still works, showing app-icon cards instead of window previews. Accessibility permission is required for the global Option+Tab hotkey." }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I install OptTab?",
+      "acceptedAnswer": { "@type": "Answer", "text": "brew install --cask konaito/tap/opttab installs the notarized app into /Applications. You can also build from source with Swift: clone the repo and run ./Scripts/bundle.sh." }
+    }
+  ]
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -294,6 +373,28 @@ h2 {
 .keys-table .kbd { font-size: 12px; }
 .keys-table td:last-child { color: var(--text-dim); }
 
+/* faq */
+.faq-list { margin-top: 36px; display: flex; flex-direction: column; gap: 10px; }
+.faq-list details {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: rgba(255,255,255,0.025);
+  padding: 0 22px;
+  transition: border-color 0.2s;
+}
+.faq-list details[open] { border-color: rgba(111,211,255,0.35); }
+.faq-list summary {
+  cursor: pointer; list-style: none;
+  padding: 18px 0; font-weight: 600; font-size: 15.5px;
+  display: flex; align-items: center; gap: 10px;
+}
+.faq-list summary::before {
+  content: "＋"; color: var(--accent); font-family: var(--mono); flex-shrink: 0;
+}
+.faq-list details[open] summary::before { content: "－"; }
+.faq-list details p { padding: 0 0 20px 26px; font-size: 14.5px; color: var(--text-dim); }
+.faq-list details a { color: var(--accent); }
+.faq-list .kbd { font-size: 11px; }
+
 /* footer */
 footer {
   margin-top: 110px; padding: 44px 24px 60px;
@@ -484,6 +585,46 @@ footer .fine { margin-top: 14px; font-family: var(--mono); font-size: 11.5px; }
     <tr><td><span class="kbd">esc</span></td><td>cancel</td></tr>
     <tr><td>quick tap</td><td>toggle to the previous window — like <span class="kbd">⌘</span><span class="kbd">⇥</span> muscle memory</td></tr>
   </table>
+</section>
+
+<section id="faq">
+  <span class="eyebrow">FAQ</span>
+  <h2>Questions people actually ask</h2>
+  <div class="faq-list">
+    <details>
+      <summary>Why doesn't <span class="kbd">⌘</span><span class="kbd">`</span> show all my windows on macOS?</summary>
+      <p>macOS's built-in "Move focus to next window" shortcut only cycles windows inside
+      the <strong>current Space</strong>. Windows on other Spaces, fullscreen windows, and
+      minimized windows are skipped entirely — that's an OS behavior, not a setting you can
+      change. OptTab exists precisely to reach them.</p>
+    </details>
+    <details>
+      <summary>How is OptTab different from AltTab?</summary>
+      <p><a href="https://alt-tab-macos.netlify.app/">AltTab</a> is great — it recreates
+      Windows-style Alt-Tab across <em>all</em> apps. OptTab is deliberately smaller: it
+      replaces <span class="kbd">⌘</span><span class="kbd">`</span> (same-app switching),
+      keeps <span class="kbd">⌘</span><span class="kbd">⇥</span> for apps, and uses only
+      public macOS APIs — no private CGS calls to break on OS updates.</p>
+    </details>
+    <details>
+      <summary>Does it work with fullscreen apps and Spaces?</summary>
+      <p>Yes. Pick a window on another Space or in fullscreen and macOS jumps there
+      automatically. For apps whose windows hide from the Accessibility API — Chromium
+      browsers are the big one — OptTab presses the app's own Window-menu item, which
+      crosses Spaces reliably.</p>
+    </details>
+    <details>
+      <summary>Do I need to grant Screen Recording?</summary>
+      <p>Only for thumbnails. Decline it and OptTab still works with app-icon cards.
+      Accessibility permission is required — that's what makes a global
+      <span class="kbd">⌥</span><span class="kbd">⇥</span> hotkey possible.</p>
+    </details>
+    <details>
+      <summary>Which macOS versions are supported?</summary>
+      <p>macOS 14 Sonoma and later (Apple Silicon and Intel). Built with Swift and
+      ScreenCaptureKit; the release build is notarized by Apple.</p>
+    </details>
+  </div>
 </section>
 
 <footer>
