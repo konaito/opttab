@@ -108,6 +108,8 @@ public final class SwitcherController: HotkeyMonitorDelegate {
 
     private func commit() {
         guard let st = state, let snap = snapshot else { return }
+        NSLog("OptTab: commit index=%d id=%u title=%@", st.selectedIndex,
+              st.selected.id, st.selected.title)
         panel.hide()
         generation += 1
         thumbnailTasks.forEach { $0.cancel() }

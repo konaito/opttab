@@ -49,4 +49,49 @@ final class WindowMenuMatcherTests: XCTestCase {
         XCTAssertNil(WindowMenuMatcher.bestIndex(windowTitle: "X", menuTitles: ["A", "B"]))
         XCTAssertNil(WindowMenuMatcher.bestIndex(windowTitle: "", menuTitles: ["", "A"]))
     }
+
+    // --- reachableWindows（メニュー項目の消費制） ---
+
+    private func rw(_ id: UInt32, _ title: String) -> WindowInfo {
+        WindowInfo(id: id, title: title,
+                   frame: CGRect(x: 0, y: 0, width: 1800, height: 1100),
+                   layer: 0, isOnScreen: false, isMinimized: false)
+    }
+
+    // AXハンドル持ちと同タイトルの裏タブは、メニュー項目が消費済みになり除外される
+    func testTabWithSameTitleAsRealWindowExcluded() {
+        let windows = [rw(155, "✳ Claude"), rw(5930, "konaito@Mac:/tmp"),
+                       rw(4549, "konaito@Mac:/tmp")]  // 4549は裏タブ
+        let result = WindowMenuMatcher.reachableWindows(
+            windows,
+            hasAXHandle: { $0 == 155 || $0 == 5930 },
+            menuTitles: ["Merge All Windows", "✳ Claude", "konaito@Mac:/tmp"])
+        XCTAssertEqual(result.map(\.id), [155, 5930])
+    }
+
+    // 別Spaceの実ウィンドウ（AXなし）は未消費のメニュー項目で通る
+    func testOtherSpaceWindowWithMenuItemIncluded() {
+        let windows = [rw(1, "Personal"), rw(2, "Outlook")]
+        let result = WindowMenuMatcher.reachableWindows(
+            windows,
+            hasAXHandle: { $0 == 1 },
+            menuTitles: ["Personal", "Outlook"])
+        XCTAssertEqual(result.map(\.id), [1, 2])
+    }
+
+    // メニュー項目が無ければAXなしウィンドウは全部除外
+    func testNoMenuItemsExcludesAXless() {
+        let windows = [rw(1, "A"), rw(2, "B")]
+        let result = WindowMenuMatcher.reachableWindows(
+            windows, hasAXHandle: { $0 == 1 }, menuTitles: [])
+        XCTAssertEqual(result.map(\.id), [1])
+    }
+
+    // 同タイトルのAXなしウィンドウ2枚に対して未消費項目が1つ → 1枚だけ通る
+    func testOneMenuItemAdmitsOnlyOneAXlessWindow() {
+        let windows = [rw(1, "same"), rw(2, "same")]
+        let result = WindowMenuMatcher.reachableWindows(
+            windows, hasAXHandle: { _ in false }, menuTitles: ["same"])
+        XCTAssertEqual(result.map(\.id), [1])
+    }
 }

@@ -91,16 +91,21 @@ public final class WindowProvider {
                                                        frontOrder: frontOrder)
         let ordered = WindowOrdering.ordered(sorted, frontID: frontOrder.first)
 
-        // 到達不能ウィンドウの除外:
-        // AXハンドルが無く、Windowメニュー項目にも無いCGウィンドウは、
+        // 到達不能ウィンドウの除外（メニュー項目の消費制）:
+        // AXハンドルが無く、未消費のWindowメニュー項目も無いCGウィンドウは、
         // ネイティブタブの裏タブ等で切り替え手段が存在しない。候補に出さない。
+        // 実ウィンドウと同タイトルの裏タブを弾くため、単純なタイトル一致ではなく
+        // 「メニュー項目1つにつきウィンドウ1枚」で判定する。
         var reachable = ordered
         if ordered.contains(where: { axHandles[$0.id] == nil }) {
             let menuTitles = FocusService.windowMenuItemTitles(appPID: pid)
-            reachable = ordered.filter { w in
-                axHandles[w.id] != nil ||
-                WindowMenuMatcher.bestIndex(windowTitle: w.title,
-                                            menuTitles: menuTitles) != nil
+            reachable = WindowMenuMatcher.reachableWindows(
+                ordered,
+                hasAXHandle: { axHandles[$0] != nil },
+                menuTitles: menuTitles)
+            if reachable.count != ordered.count {
+                NSLog("OptTab: excluded %d unreachable window(s) (native tabs etc.)",
+                      ordered.count - reachable.count)
             }
         }
 

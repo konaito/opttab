@@ -48,6 +48,25 @@ final class WindowMatcherTests: XCTestCase {
         XCTAssertEqual(WindowMatcher.eligibleAXIndices([tabbar, real]), [1])
     }
 
+    // pass 1.5: タイトル先頭のスピナー等で完全一致しなくても、類似タイトルで対応付く。
+    // 同フレームに重なった2枚が、フレーム近似で誤配線されないこと
+    func testSimilarTitleBeatsFrameAmbiguity() {
+        let cg = [win(155, "⠐ 写真選択後の挙動をテストして設計を見直す", x: 0),
+                  win(5930, "konaito@MacBooks:/tmp", x: 0)]  // 同位置に重なってる
+        let axWins = [ax("konaito@MacBooks:/tmp", x: 0),
+                      ax("⠂ 写真選択後の挙動をテストして設計を見直す", x: 0)]
+        let m = WindowMatcher.match(cg: cg, ax: axWins)
+        XCTAssertEqual(m[155], 1)
+        XCTAssertEqual(m[5930], 0)
+    }
+
+    // 類似一致は無関係なタイトル同士では発動しない
+    func testDissimilarTitlesDoNotMatchBySimilarity() {
+        let cg = [win(10, "konaito@MacBooks:/tmp", x: 5000)]  // フレームも遠い
+        let axWins = [ax("完全に別のタイトル", x: 0)]
+        XCTAssertTrue(WindowMatcher.match(cg: cg, ax: axWins).isEmpty)
+    }
+
     // eligibleAXIndices: タイトル空でも大きければ残す
     func testEligibleAXIndicesKeepsLargeUntitled() {
         let big = AXWindowDescriptor(title: "",

@@ -33,6 +33,8 @@ public enum FocusService {
                                      kCFBooleanTrue)
         let raiseErr = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
         app?.activate()
+        NSLog("OptTab: direct raise id=%u axTitle=%@ err=%d", windowID,
+              axTitle(axWin), raiseErr.rawValue)
         if raiseErr != .success {
             NSLog("OptTab: AXRaise failed (%d) for window %u", raiseErr.rawValue, windowID)
         }
