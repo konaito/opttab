@@ -60,23 +60,27 @@ public final class WindowProvider {
            let arr = axValue as? [AXUIElement] {
             axList = arr
         }
-        let descriptors = axList.map {
+        let allDescriptors = axList.map {
             AXWindowDescriptor(title: Self.axTitle($0),
                                frame: Self.axFrame($0),
                                isMinimized: Self.axMinimized($0))
         }
+        // タブバー等の付属AXウィンドウを突き合わせ対象から外す（誤マッチ防止）
+        let axIndices = WindowMatcher.eligibleAXIndices(allDescriptors)
+        let descriptors = axIndices.map { allDescriptors[$0] }
         let mapping = WindowMatcher.match(cg: infos, ax: descriptors)
         var axHandles: [UInt32: AXUIElement] = [:]
         for (wid, idx) in mapping {
-            axHandles[wid] = axList[idx]
+            let original = axIndices[idx]
+            axHandles[wid] = axList[original]
             if let i = infos.firstIndex(where: { $0.id == wid }) {
                 // SCWindow.titleがnilだった場合や縮退モード（タイトル取得不可）を
                 // AXのタイトルで補う。eligible()の判定に使われるためsortより前に行う。
                 let old = infos[i]
-                let title = old.title.isEmpty ? descriptors[idx].title : old.title
+                let title = old.title.isEmpty ? allDescriptors[original].title : old.title
                 infos[i] = WindowInfo(id: old.id, title: title, frame: old.frame,
                                       layer: old.layer, isOnScreen: old.isOnScreen,
-                                      isMinimized: descriptors[idx].isMinimized)
+                                      isMinimized: allDescriptors[original].isMinimized)
             }
         }
 
@@ -87,10 +91,23 @@ public final class WindowProvider {
                                                        frontOrder: frontOrder)
         let ordered = WindowOrdering.ordered(sorted, frontID: frontOrder.first)
 
+        // 到達不能ウィンドウの除外:
+        // AXハンドルが無く、Windowメニュー項目にも無いCGウィンドウは、
+        // ネイティブタブの裏タブ等で切り替え手段が存在しない。候補に出さない。
+        var reachable = ordered
+        if ordered.contains(where: { axHandles[$0.id] == nil }) {
+            let menuTitles = FocusService.windowMenuItemTitles(appPID: pid)
+            reachable = ordered.filter { w in
+                axHandles[w.id] != nil ||
+                WindowMenuMatcher.bestIndex(windowTitle: w.title,
+                                            menuTitles: menuTitles) != nil
+            }
+        }
+
         return WindowSnapshot(appPID: pid,
                               appName: app.localizedName ?? "",
                               appIcon: app.icon,
-                              windows: ordered,
+                              windows: reachable,
                               scWindows: scMap,
                               axWindows: axHandles)
     }

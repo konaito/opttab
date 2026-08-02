@@ -38,6 +38,23 @@ public enum FocusService {
         }
     }
 
+    /// アプリのWindowメニューの全項目タイトルを返す（到達可能性判定に使う）。
+    /// Windowメニューが見つからなければ空配列。
+    static func windowMenuItemTitles(appPID: pid_t) -> [String] {
+        let axApp = AXUIElementCreateApplication(appPID)
+        var mb: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXMenuBarAttribute as CFString,
+                                            &mb) == .success,
+              let menubarRef = mb, CFGetTypeID(menubarRef) == AXUIElementGetTypeID()
+        else { return [] }
+        let menubar = menubarRef as! AXUIElement
+        for menu in axChildren(menubar) where windowMenuTitles.contains(axTitle(menu)) {
+            guard let submenu = axChildren(menu).first else { continue }
+            return axChildren(submenu).map { axTitle($0) }
+        }
+        return []
+    }
+
     /// アプリのWindowメニューから対象ウィンドウの項目を探してAXPressする。
     /// メニュー項目は全Spaceのウィンドウを含むため、AXRaise不能なウィンドウへの公開APIでの唯一の経路。
     @MainActor

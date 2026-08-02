@@ -31,11 +31,29 @@ final class WindowMatcherTests: XCTestCase {
         XCTAssertEqual(m[20], 0)
     }
 
-    // タイトルもフレームも合わない残り物は前面順で割り当て
-    func testLeftoversAssignedInOrder() {
+    // タイトルもフレームも合わない残り物は割り当てない（誤マッチで無関係な要素を
+    // Raiseするより、未対応としてメニュー/除外フォールバックに回す方が安全）
+    func testLeftoversAreNotAssigned() {
         let m = WindowMatcher.match(cg: [win(10, "A", x: 0)],
                                     ax: [ax("違うタイトル", x: 5000)])
-        XCTAssertEqual(m, [10: 0])
+        XCTAssertTrue(m.isEmpty)
+    }
+
+    // eligibleAXIndices: タイトル空かつ極小のAXウィンドウ（タブバー等の付属要素）を除外
+    func testEligibleAXIndicesExcludesTinyUntitled() {
+        let tabbar = AXWindowDescriptor(title: "",
+                                        frame: CGRect(x: 0, y: 0, width: 1512, height: 33),
+                                        isMinimized: false)
+        let real = ax("Terminal")
+        XCTAssertEqual(WindowMatcher.eligibleAXIndices([tabbar, real]), [1])
+    }
+
+    // eligibleAXIndices: タイトル空でも大きければ残す
+    func testEligibleAXIndicesKeepsLargeUntitled() {
+        let big = AXWindowDescriptor(title: "",
+                                     frame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+                                     isMinimized: false)
+        XCTAssertEqual(WindowMatcher.eligibleAXIndices([big]), [0])
     }
 
     // AXが足りない場合、余ったCGウィンドウは対応なし

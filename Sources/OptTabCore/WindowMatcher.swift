@@ -13,8 +13,20 @@ public struct AXWindowDescriptor: Equatable {
 }
 
 public enum WindowMatcher {
+    /// 突き合わせ対象にしてよいAXウィンドウのindex列を返す。
+    /// タイトル空かつ極小のAXウィンドウ（タブバー・付属パネル等）を対象から外す。
+    /// これを通さず全AXウィンドウを渡すと、別Space等の未対応CGウィンドウが
+    /// 付属要素に誤マッチして無関係な要素をRaiseする事故になる（Ghosttyで実害確認済み）。
+    public static func eligibleAXIndices(_ ax: [AXWindowDescriptor]) -> [Int] {
+        ax.indices.filter { i in
+            !(ax[i].title.isEmpty &&
+              (ax[i].frame.width < 200 || ax[i].frame.height < 150))
+        }
+    }
+
     /// CGウィンドウ列とAXウィンドウ列を突き合わせて windowID → AX index を返す。
-    /// 1) タイトル完全一致 → 2) フレーム近似 → 3) 残りを前面順で割り当て
+    /// 1) タイトル完全一致 → 2) フレーム近似。それでも合わない残り物は割り当てない
+    /// （盲目的な順番割り当ては誤マッチの温床なので廃止）
     public static func match(cg: [WindowInfo],
                              ax: [AXWindowDescriptor]) -> [UInt32: Int] {
         var result: [UInt32: Int] = [:]
@@ -38,13 +50,6 @@ public enum WindowMatcher {
             if let i = ax.indices.first(where: {
                 !usedAX.contains($0) && approxEqual(ax[$0].frame, w.frame)
             }) {
-                result[w.id] = i
-                usedAX.insert(i)
-            }
-        }
-        // pass 3: 残り物を前面順で割り当て
-        for w in cg where result[w.id] == nil {
-            if let i = ax.indices.first(where: { !usedAX.contains($0) }) {
                 result[w.id] = i
                 usedAX.insert(i)
             }
