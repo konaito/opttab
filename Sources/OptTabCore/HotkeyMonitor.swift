@@ -88,6 +88,7 @@ public final class HotkeyMonitor {
 
         if action == .passthrough { return Unmanaged.passUnretained(event) }
         MainActor.assumeIsolated { delegate?.handle(action) }
+        if action == .commit { return Unmanaged.passUnretained(event) }  // 修飾キー解放はシステムにも流す
         return nil  // 消費（システムに流さない）
     }
 }

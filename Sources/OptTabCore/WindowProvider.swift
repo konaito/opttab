@@ -47,6 +47,7 @@ public final class WindowProvider {
         } catch {
             // 画面収録許可なし等でSCShareableContentが失敗 → CGWindowListで縮退取得
             // （scMapは空のまま → サムネイル取得はスキップされ、アイコン表示の縮退モードになる）
+            NSLog("OptTab: SCShareableContent failed, falling back to CGWindowList: \(error)")
             infos = Self.cgWindowListFallback(pid: pid)
         }
 

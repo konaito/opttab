@@ -16,8 +16,8 @@ public enum WindowOrdering {
     /// 無いもの（別Space・最小化）は後ろにタイトル昇順で並べる
     public static func sortedByFrontOrder(_ windows: [WindowInfo],
                                           frontOrder: [UInt32]) -> [WindowInfo] {
-        let rank = Dictionary(uniqueKeysWithValues:
-            frontOrder.enumerated().map { ($1, $0) })
+        let rank = Dictionary(frontOrder.enumerated().map { ($1, $0) },
+                              uniquingKeysWith: { first, _ in first })
         return windows.sorted { a, b in
             switch (rank[a.id], rank[b.id]) {
             case let (ra?, rb?): return ra < rb

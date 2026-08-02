@@ -46,6 +46,7 @@ public final class SwitcherController: HotkeyMonitorDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.activating = false }
+            let gen = self.generation
 
             let snap: WindowSnapshot?
             do {
@@ -54,6 +55,7 @@ public final class SwitcherController: HotkeyMonitorDelegate {
                 NSLog("OptTab: snapshot failed: \(error)")
                 return
             }
+            guard gen == self.generation else { return }
             guard let snap, let st = SwitcherState(windows: snap.windows, reverse: reverse)
             else { return }  // ウィンドウ2枚未満 → 何もしない
 
