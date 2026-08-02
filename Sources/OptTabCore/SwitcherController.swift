@@ -6,6 +6,8 @@ public final class SwitcherController: HotkeyMonitorDelegate {
     private var state: SwitcherState?
     private var snapshot: WindowSnapshot?
     private var activating = false
+    private var generation = 0
+    private var thumbnailTasks: [Task<Void, Never>] = []
 
     private let provider = WindowProvider()
     private let thumbnails = ThumbnailService()
@@ -44,8 +46,15 @@ public final class SwitcherController: HotkeyMonitorDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.activating = false }
-            guard let snap = try? await self.provider.snapshot(),
-                  let st = SwitcherState(windows: snap.windows, reverse: reverse)
+
+            let snap: WindowSnapshot?
+            do {
+                snap = try await self.provider.snapshot()
+            } catch {
+                NSLog("OptTab: snapshot failed: \(error)")
+                return
+            }
+            guard let snap, let st = SwitcherState(windows: snap.windows, reverse: reverse)
             else { return }  // ウィンドウ2枚未満 → 何もしない
 
             self.snapshot = snap
@@ -57,7 +66,7 @@ public final class SwitcherController: HotkeyMonitorDelegate {
             }
             self.model.selectedIndex = st.selectedIndex
             self.panel.show()
-            self.loadThumbnails(snap)
+            self.loadThumbnails(snap, generation: self.generation)
 
             // スナップショット取得中にOptionが離されていたら即確定（即離しトグル）
             if !CGEventSource.flagsState(.combinedSessionState)
@@ -67,19 +76,22 @@ public final class SwitcherController: HotkeyMonitorDelegate {
         }
     }
 
-    private func loadThumbnails(_ snap: WindowSnapshot) {
+    private func loadThumbnails(_ snap: WindowSnapshot, generation: Int) {
         for window in snap.windows {
             guard let scWindow = snap.scWindows[window.id] else { continue }
-            Task { [weak self] in
+            let task = Task { @MainActor [weak self] in
                 guard let self else { return }
                 // キャッシュを先に出し、新しいスクショで差し替え
                 if let cached = await self.thumbnails.cached(for: window.id) {
-                    await self.setThumbnail(cached, for: window.id)
+                    guard !Task.isCancelled, generation == self.generation else { return }
+                    self.setThumbnail(cached, for: window.id)
                 }
                 if let fresh = await self.thumbnails.capture(scWindow) {
-                    await self.setThumbnail(fresh, for: window.id)
+                    guard !Task.isCancelled, generation == self.generation else { return }
+                    self.setThumbnail(fresh, for: window.id)
                 }
             }
+            thumbnailTasks.append(task)
         }
     }
 
@@ -95,6 +107,9 @@ public final class SwitcherController: HotkeyMonitorDelegate {
     private func commit() {
         guard let st = state, let snap = snapshot else { return }
         panel.hide()
+        generation += 1
+        thumbnailTasks.forEach { $0.cancel() }
+        thumbnailTasks.removeAll()
         state = nil
         snapshot = nil
         FocusService.focus(windowID: st.selected.id, snapshot: snap)
@@ -102,6 +117,9 @@ public final class SwitcherController: HotkeyMonitorDelegate {
 
     private func cancel() {
         panel.hide()
+        generation += 1
+        thumbnailTasks.forEach { $0.cancel() }
+        thumbnailTasks.removeAll()
         state = nil
         snapshot = nil
     }

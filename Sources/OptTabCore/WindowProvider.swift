@@ -25,20 +25,29 @@ public final class WindowProvider {
         }
         let pid = app.processIdentifier
 
-        // 別Spaceのウィンドウも含めて列挙（onScreenWindowsOnly: false が肝）
-        let content = try await SCShareableContent
-            .excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        let scList = content.windows.filter {
-            $0.owningApplication?.processID == pid
-        }
+        var infos: [WindowInfo]
+        var scMap: [UInt32: SCWindow] = [:]
 
-        var infos: [WindowInfo] = scList.map { w in
-            WindowInfo(id: w.windowID,
-                       title: w.title ?? "",
-                       frame: w.frame,
-                       layer: w.windowLayer,
-                       isOnScreen: w.isOnScreen,
-                       isMinimized: false)
+        do {
+            // 別Spaceのウィンドウも含めて列挙（onScreenWindowsOnly: false が肝）
+            let content = try await SCShareableContent
+                .excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            let scList = content.windows.filter {
+                $0.owningApplication?.processID == pid
+            }
+            infos = scList.map { w in
+                WindowInfo(id: w.windowID,
+                           title: w.title ?? "",
+                           frame: w.frame,
+                           layer: w.windowLayer,
+                           isOnScreen: w.isOnScreen,
+                           isMinimized: false)
+            }
+            for w in scList { scMap[w.windowID] = w }
+        } catch {
+            // 画面収録許可なし等でSCShareableContentが失敗 → CGWindowListで縮退取得
+            // （scMapは空のまま → サムネイル取得はスキップされ、アイコン表示の縮退モードになる）
+            infos = Self.cgWindowListFallback(pid: pid)
         }
 
         // AXウィンドウと突き合わせ（最小化フラグと操作ハンドルを得る）
@@ -60,7 +69,13 @@ public final class WindowProvider {
         for (wid, idx) in mapping {
             axHandles[wid] = axList[idx]
             if let i = infos.firstIndex(where: { $0.id == wid }) {
-                infos[i].isMinimized = descriptors[idx].isMinimized
+                // SCWindow.titleがnilだった場合や縮退モード（タイトル取得不可）を
+                // AXのタイトルで補う。eligible()の判定に使われるためsortより前に行う。
+                let old = infos[i]
+                let title = old.title.isEmpty ? descriptors[idx].title : old.title
+                infos[i] = WindowInfo(id: old.id, title: title, frame: old.frame,
+                                      layer: old.layer, isOnScreen: old.isOnScreen,
+                                      isMinimized: descriptors[idx].isMinimized)
             }
         }
 
@@ -71,15 +86,34 @@ public final class WindowProvider {
                                                        frontOrder: frontOrder)
         let ordered = WindowOrdering.ordered(sorted, frontID: frontOrder.first)
 
-        var scMap: [UInt32: SCWindow] = [:]
-        for w in scList { scMap[w.windowID] = w }
-
         return WindowSnapshot(appPID: pid,
                               appName: app.localizedName ?? "",
                               appIcon: app.icon,
                               windows: ordered,
                               scWindows: scMap,
                               axWindows: axHandles)
+    }
+
+    /// 画面収録許可なしでSCShareableContentが使えない場合のCGWindowListベース縮退取得
+    /// タイトルは取得できない（AXマッチング側で補完される）
+    static func cgWindowListFallback(pid: pid_t) -> [WindowInfo] {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionAll], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        return list.compactMap { d -> WindowInfo? in
+            guard let p = d[kCGWindowOwnerPID as String] as? Int32, p == pid,
+                  let n = d[kCGWindowNumber as String] as? UInt32,
+                  let layer = d[kCGWindowLayer as String] as? Int,
+                  let boundsDict = d[kCGWindowBounds as String] as? [String: Any],
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
+            else { return nil }
+            let isOnScreen = d[kCGWindowIsOnscreen as String] as? Bool ?? false
+            return WindowInfo(id: n,
+                              title: "",
+                              frame: bounds,
+                              layer: layer,
+                              isOnScreen: isOnScreen,
+                              isMinimized: false)
+        }
     }
 
     /// 現在のSpaceで前面→背面順のCGWindowID列（レイヤー0のみ）
