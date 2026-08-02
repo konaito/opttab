@@ -1,7 +1,11 @@
 #!/bin/bash
 # OptTabを.appにバンドルして ~/Applications に配置する
+# --build-only: build/OptTab.app を作るだけ（インストール・プロセス停止をしない。Homebrew formula用）
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+BUILD_ONLY=0
+[ "${1:-}" = "--build-only" ] && BUILD_ONLY=1
 
 swift build -c release
 
@@ -35,6 +39,11 @@ PLIST
 IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
     | awk -F'"' '/Apple Development/{print $2; exit}')
 codesign --force --sign "${IDENTITY:--}" "$APP"
+
+if [ "$BUILD_ONLY" = 1 ]; then
+    echo "built: $APP"
+    exit 0
+fi
 
 mkdir -p ~/Applications
 # 起動中なら止めてから差し替え
