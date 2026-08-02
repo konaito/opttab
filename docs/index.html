@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OptTab — Option+Tab window switcher for macOS</title>
+<meta name="description" content="Switch between windows of the current app — across Spaces, fullscreen, and minimized. The window switcher Cmd+` should have been.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0b0d12;
+  --bg-2: #12151d;
+  --panel: rgba(28, 32, 42, 0.72);
+  --panel-solid: #1c202a;
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #e8eaf0;
+  --text-dim: #8a90a0;
+  --accent: #6fd3ff;
+  --accent-deep: #2f9fd8;
+  --warn: #ffb454;
+  --radius: 14px;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --sans: "Bricolage Grotesque", -apple-system, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-weight: 340;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ---- atmosphere ---- */
+.wallpaper {
+  position: fixed; inset: 0; z-index: -2;
+  background:
+    radial-gradient(60% 45% at 78% -8%, rgba(47, 159, 216, 0.28), transparent 60%),
+    radial-gradient(45% 38% at 12% 8%, rgba(111, 84, 214, 0.16), transparent 65%),
+    radial-gradient(70% 60% at 50% 115%, rgba(24, 92, 128, 0.22), transparent 60%),
+    linear-gradient(180deg, #0c0f16, #0b0d12 45%);
+}
+.wallpaper::after {
+  content: ""; position: absolute; inset: 0; opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- faux macOS menu bar ---- */
+.menubar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 22px;
+  padding: 7px 20px;
+  font-size: 13px; font-weight: 500;
+  background: rgba(16, 18, 25, 0.6);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--line);
+}
+.menubar .apple { font-size: 15px; opacity: 0.9; }
+.menubar .app-name { font-weight: 650; }
+.menubar .item { color: var(--text-dim); }
+.menubar .spacer { flex: 1; }
+.menubar a { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 12px; }
+.menubar a:hover { text-decoration: underline; }
+
+/* ---- hero ---- */
+.hero { max-width: 1060px; margin: 0 auto; padding: 84px 24px 30px; text-align: center; }
+.hero .badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 12px; color: var(--accent);
+  border: 1px solid rgba(111, 211, 255, 0.35);
+  background: rgba(111, 211, 255, 0.07);
+  padding: 5px 14px; border-radius: 99px;
+  animation: rise 0.7s 0.05s both;
+}
+h1 {
+  font-size: clamp(44px, 7.5vw, 84px);
+  font-weight: 750;
+  font-optical-sizing: auto;
+  letter-spacing: -0.03em;
+  line-height: 1.04;
+  margin: 26px 0 18px;
+  animation: rise 0.7s 0.15s both;
+}
+h1 .keys { white-space: nowrap; }
+h1 em {
+  font-style: normal;
+  background: linear-gradient(120deg, var(--accent), #b48cff 90%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero p.lede {
+  font-size: clamp(16px, 2.2vw, 20px);
+  color: var(--text-dim); max-width: 620px; margin: 0 auto;
+  animation: rise 0.7s 0.25s both;
+}
+.hero p.lede strong { color: var(--text); font-weight: 550; }
+
+.kbd {
+  display: inline-block;
+  font-family: var(--mono); font-size: 0.55em; font-weight: 600;
+  vertical-align: middle;
+  padding: 0.18em 0.5em 0.28em;
+  margin: 0 0.06em;
+  border-radius: 0.22em;
+  color: var(--text);
+  background: linear-gradient(180deg, #2a2f3c, #1a1e28);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-bottom-width: 3px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+  transform: translateY(-0.08em);
+}
+.kbd.pressed { border-bottom-width: 1px; transform: translateY(0.02em); background: linear-gradient(180deg, #232838, #161a24); }
+
+/* ---- interactive HUD demo ---- */
+.demo-stage {
+  position: relative;
+  max-width: 900px; margin: 48px auto 0; padding: 0 24px 20px;
+  animation: rise 0.8s 0.4s both;
+}
+.spaces-strip {
+  display: flex; justify-content: center; gap: 8px; margin-bottom: 18px;
+  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+}
+.space-dot {
+  padding: 3px 12px; border-radius: 8px;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.03);
+  transition: all 0.35s;
+}
+.space-dot.active { color: var(--accent); border-color: rgba(111,211,255,0.5); background: rgba(111,211,255,0.08); }
+.hud {
+  display: flex; gap: 12px; justify-content: center; align-items: stretch;
+  padding: 18px;
+  border-radius: 22px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 40px 90px rgba(0, 0, 0, 0.55);
+}
+.card {
+  flex: 1; max-width: 235px;
+  padding: 9px; border-radius: 14px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, transform 0.18s;
+}
+.card.selected {
+  border-color: var(--accent);
+  background: rgba(111, 211, 255, 0.10);
+  transform: translateY(-3px);
+}
+.thumb {
+  height: 128px; border-radius: 9px; overflow: hidden; position: relative;
+  border: 1px solid var(--line);
+  background: #10131a;
+}
+.thumb .tbar { height: 20px; display: flex; align-items: center; gap: 5px; padding: 0 8px; background: #1a1e29; }
+.thumb .dot { width: 7px; height: 7px; border-radius: 50%; }
+.thumb .body { padding: 8px; font-family: var(--mono); font-size: 9.5px; line-height: 1.7; }
+.thumb .body .ln { white-space: nowrap; overflow: hidden; }
+.card .label {
+  margin-top: 8px; text-align: center;
+  font-size: 12.5px; font-weight: 480;
+  color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.card.selected .label { color: var(--text); }
+.card .tag {
+  position: absolute; top: 26px; right: 6px;
+  font-family: var(--mono); font-size: 9px;
+  color: var(--warn); background: rgba(255, 180, 84, 0.12);
+  border: 1px solid rgba(255,180,84,0.3);
+  padding: 1px 6px; border-radius: 6px;
+}
+.demo-hint {
+  margin-top: 20px; text-align: center;
+  font-family: var(--mono); font-size: 12.5px; color: var(--text-dim);
+}
+.demo-hint .kbd { font-size: 11px; }
+.toast {
+  position: absolute; left: 50%; bottom: -26px;
+  transform: translateX(-50%) translateY(8px);
+  font-family: var(--mono); font-size: 12px; color: var(--accent);
+  opacity: 0; transition: all 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---- sections ---- */
+section { max-width: 1060px; margin: 0 auto; padding: 88px 24px 0; }
+.eyebrow {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--accent);
+}
+h2 {
+  font-size: clamp(28px, 4vw, 42px); font-weight: 700;
+  letter-spacing: -0.02em; margin: 10px 0 14px; line-height: 1.15;
+}
+.section-lede { color: var(--text-dim); max-width: 640px; }
+
+/* problem strip */
+.vs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 36px;
+}
+.vs .pane {
+  border-radius: var(--radius); border: 1px solid var(--line);
+  background: rgba(255,255,255,0.025); padding: 26px;
+}
+.vs .pane.bad { border-color: rgba(255, 107, 107, 0.22); }
+.vs .pane.good { border-color: rgba(111, 211, 255, 0.35); background: rgba(111,211,255,0.05); }
+.vs .pane h3 { font-size: 17px; font-weight: 650; margin-bottom: 10px; display: flex; gap: 9px; align-items: center; }
+.vs .pane p { font-size: 14.5px; color: var(--text-dim); }
+.vs .x { color: #ff6b6b; font-family: var(--mono); }
+.vs .o { color: var(--accent); font-family: var(--mono); }
+
+/* features */
+.grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px;
+}
+.feature {
+  border-radius: var(--radius); border: 1px solid var(--line);
+  background: rgba(255,255,255,0.025);
+  padding: 24px 22px;
+  transition: transform 0.25s, border-color 0.25s, background 0.25s;
+}
+.feature:hover {
+  transform: translateY(-4px);
+  border-color: rgba(111,211,255,0.4);
+  background: rgba(111,211,255,0.05);
+}
+.feature .icon { font-size: 22px; margin-bottom: 12px; }
+.feature h3 { font-size: 16px; font-weight: 650; margin-bottom: 7px; }
+.feature p { font-size: 13.5px; color: var(--text-dim); }
+.feature code { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+
+/* how it works */
+.pipeline {
+  margin-top: 40px;
+  border-radius: var(--radius); border: 1px solid var(--line);
+  background: #0e1117; padding: 30px;
+  font-family: var(--mono); font-size: 13.5px; line-height: 2.1;
+  overflow-x: auto;
+}
+.pipeline .stage { color: var(--text); white-space: nowrap; }
+.pipeline .arrow { color: var(--text-dim); }
+.pipeline .note { color: var(--text-dim); font-size: 12px; }
+.pipeline .hl { color: var(--accent); }
+.pipeline .hl2 { color: var(--warn); }
+
+/* install */
+.install-box {
+  margin-top: 36px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(111,211,255,0.3);
+  background: #0e1117;
+  overflow: hidden;
+}
+.install-box .bar {
+  display: flex; gap: 6px; align-items: center;
+  padding: 11px 16px; border-bottom: 1px solid var(--line);
+}
+.install-box .bar .dot { width: 11px; height: 11px; border-radius: 50%; }
+.install-box .bar .title { margin-left: 8px; font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); }
+.install-box pre {
+  padding: 22px 24px; font-family: var(--mono); font-size: 14px; line-height: 2;
+  overflow-x: auto;
+}
+.install-box .c { color: var(--text-dim); }
+.install-box .p { color: var(--accent); user-select: none; }
+.perm-note {
+  margin-top: 18px; display: flex; gap: 12px;
+  font-size: 13.5px; color: var(--text-dim);
+  border-left: 3px solid var(--warn);
+  padding: 4px 0 4px 16px;
+}
+
+/* keys table */
+.keys-table {
+  margin-top: 36px; width: 100%;
+  border-collapse: separate; border-spacing: 0;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden;
+}
+.keys-table td {
+  padding: 15px 22px; font-size: 14.5px;
+  border-top: 1px solid var(--line);
+}
+.keys-table tr:first-child td { border-top: none; }
+.keys-table td:first-child { width: 40%; background: rgba(255,255,255,0.02); }
+.keys-table .kbd { font-size: 12px; }
+.keys-table td:last-child { color: var(--text-dim); }
+
+/* footer */
+footer {
+  margin-top: 110px; padding: 44px 24px 60px;
+  border-top: 1px solid var(--line);
+  text-align: center; color: var(--text-dim); font-size: 13.5px;
+}
+footer .logo { font-weight: 750; font-size: 17px; color: var(--text); letter-spacing: -0.02em; }
+footer a { color: var(--accent); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
+footer .fine { margin-top: 14px; font-family: var(--mono); font-size: 11.5px; }
+
+.cta-row { display: flex; gap: 14px; justify-content: center; margin-top: 34px; animation: rise 0.8s 0.5s both; }
+.btn {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 13px 26px; border-radius: 12px;
+  font-family: var(--sans); font-weight: 600; font-size: 15px;
+  text-decoration: none; transition: transform 0.18s, box-shadow 0.18s;
+}
+.btn:hover { transform: translateY(-2px); }
+.btn.primary {
+  color: #06121a;
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  box-shadow: 0 10px 34px rgba(47, 159, 216, 0.35);
+}
+.btn.ghost { color: var(--text); border: 1px solid var(--line); background: rgba(255,255,255,0.03); }
+
+@keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 760px) {
+  .grid { grid-template-columns: 1fr; }
+  .vs { grid-template-columns: 1fr; }
+  .hud { flex-wrap: wrap; }
+  .card { max-width: none; flex-basis: 45%; }
+  .menubar .item { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wallpaper"></div>
+
+<nav class="menubar">
+  <span class="apple"></span>
+  <span class="app-name">OptTab</span>
+  <span class="item">File</span>
+  <span class="item">Edit</span>
+  <span class="item">Window</span>
+  <span class="spacer"></span>
+  <a href="https://github.com/konaito/opttab">github.com/konaito/opttab →</a>
+</nav>
+
+<header class="hero">
+  <span class="badge">⌥ open source · macOS 14+ · public APIs only</span>
+  <h1>
+    <span class="keys"><span class="kbd" id="key-opt">⌥ option</span><span class="kbd" id="key-tab">⇥ tab</span></span><br>
+    for the windows <em>Cmd+` can't reach</em>
+  </h1>
+  <p class="lede">
+    macOS's built-in window switcher stops at the edge of the current Space.
+    <strong>OptTab switches between windows of the current app — across Spaces,
+    fullscreen, and minimized</strong> — with a thumbnail HUD that feels native.
+  </p>
+
+  <div class="demo-stage">
+    <div class="spaces-strip">
+      <span class="space-dot" data-space="0">Space 1</span>
+      <span class="space-dot" data-space="1">Space 2</span>
+      <span class="space-dot" data-space="2">Space 3 · fullscreen</span>
+    </div>
+    <div class="hud" id="hud" role="listbox" aria-label="Window switcher demo"></div>
+    <div class="toast" id="toast">⤷ switched — even across Spaces</div>
+    <p class="demo-hint">this is a live demo — press <span class="kbd">⇥ tab</span> to cycle, <span class="kbd">⏎</span> to switch</p>
+  </div>
+
+  <div class="cta-row">
+    <a class="btn primary" href="https://github.com/konaito/opttab">★ Star on GitHub</a>
+    <a class="btn ghost" href="#install">Install in 30 seconds</a>
+  </div>
+</header>
+
+<section>
+  <span class="eyebrow">The problem</span>
+  <h2>Your windows live in different Spaces.<br>Your switcher doesn't know that.</h2>
+  <div class="vs">
+    <div class="pane bad">
+      <h3><span class="x">✕</span> Cmd+`</h3>
+      <p>Cycles windows <strong>inside the current Space only</strong>. That second browser
+      window on another desktop? Fullscreen terminal? Minimized editor?
+      Invisible. You end up in Mission Control, hunting with the trackpad.</p>
+    </div>
+    <div class="pane good">
+      <h3><span class="o">✓</span> OptTab</h3>
+      <p>One keystroke reaches <strong>every real window of the active app</strong> —
+      other Spaces, fullscreen, minimized. macOS jumps to the right Space for you.
+      App-to-app switching stays where it belongs: Cmd+Tab.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Features</span>
+  <h2>Small tool. Sharp edges filed off.</h2>
+  <div class="grid">
+    <div class="feature">
+      <div class="icon">🪐</div>
+      <h3>Crosses Spaces &amp; fullscreen</h3>
+      <p>Reaches windows on other desktops and fullscreen Spaces. For apps whose windows
+      hide from the Accessibility API (hi, Chromium), it drives the app's own
+      <code>Window</code> menu instead.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">🖼️</div>
+      <h3>Thumbnail HUD</h3>
+      <p>Live window previews via ScreenCaptureKit, centered on the display your cursor
+      is on. Never steals focus — the panel is non-activating by design.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">🎯</div>
+      <h3>Active app only</h3>
+      <p>Deliberately scoped: OptTab cycles windows of the app you're in.
+      <code>⌘Tab</code> keeps switching apps. Two keystrokes, two clean jobs.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">🧠</div>
+      <h3>Knows tabs aren't windows</h3>
+      <p>Native-tab apps (Ghostty, Terminal…) leak background tabs into the window list.
+      OptTab filters out anything you can't actually switch to.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">🔓</div>
+      <h3>Public APIs only</h3>
+      <p>No private CGS calls, no injected code. CGEventTap + ScreenCaptureKit +
+      Accessibility. Survives macOS updates like a good citizen.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">🕯️</div>
+      <h3>Degrades gracefully</h3>
+      <p>No screen-recording permission? It still works — app-icon cards instead of
+      thumbnails. Accessibility granted late? It picks itself up automatically.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Under the hood</span>
+  <h2>Four public APIs in a trench coat</h2>
+  <p class="section-lede">Everything is boring, documented macOS API — arranged in a fallback
+  chain so the switch lands even when an app hides its windows.</p>
+  <div class="pipeline">
+    <div class="stage"><span class="hl">CGEventTap</span> <span class="arrow">──▶</span> capture ⌥⇥ before the app sees it <span class="arrow">──▶</span> swallow · cycle · commit on ⌥ release</div>
+    <div class="stage"><span class="hl">ScreenCaptureKit</span> <span class="arrow">──▶</span> enumerate windows <span class="note">(onScreenWindowsOnly: false → every Space)</span> + thumbnails</div>
+    <div class="stage"><span class="hl">Accessibility</span> <span class="arrow">──▶</span> match CG ↔ AX windows <span class="arrow">──▶</span> <span class="hl2">AXRaise</span> the winner</div>
+    <div class="stage"><span class="note">└─ no AX handle? (other-Space Chromium…)</span> <span class="arrow">──▶</span> press its <span class="hl2">Window-menu item</span> — jumps Spaces via public AX</div>
+  </div>
+</section>
+
+<section id="install">
+  <span class="eyebrow">Install</span>
+  <h2>Clone, build, switch.</h2>
+  <div class="install-box">
+    <div class="bar">
+      <span class="dot" style="background:#ff5f57"></span>
+      <span class="dot" style="background:#febc2e"></span>
+      <span class="dot" style="background:#28c840"></span>
+      <span class="title">ghostty — zsh</span>
+    </div>
+    <pre><span class="p">$</span> git clone https://github.com/konaito/opttab.git
+<span class="p">$</span> cd opttab
+<span class="p">$</span> ./Scripts/bundle.sh        <span class="c"># swift build + .app + codesign → ~/Applications</span>
+<span class="p">$</span> open ~/Applications/OptTab.app</pre>
+  </div>
+  <div class="perm-note">
+    <span>⚠️</span>
+    <span>First launch asks for <strong>Accessibility</strong> (the hotkey) and
+    <strong>Screen Recording</strong> (thumbnails — optional, icon cards otherwise).
+    OptTab lives in your menu bar; enable "Launch at Login" from there.</span>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Keys</span>
+  <h2>Nothing to memorize</h2>
+  <table class="keys-table">
+    <tr><td><span class="kbd">⌥</span> + <span class="kbd">⇥</span></td><td>open the HUD / cycle forward</td></tr>
+    <tr><td><span class="kbd">⌥</span> + <span class="kbd">⇧</span> + <span class="kbd">⇥</span></td><td>cycle backward</td></tr>
+    <tr><td>release <span class="kbd">⌥</span></td><td>switch to the selected window</td></tr>
+    <tr><td><span class="kbd">esc</span></td><td>cancel</td></tr>
+    <tr><td>quick tap</td><td>toggle to the previous window — like <span class="kbd">⌘</span><span class="kbd">⇥</span> muscle memory</td></tr>
+  </table>
+</section>
+
+<footer>
+  <div class="logo">⌥⇥ OptTab</div>
+  <p style="margin-top:10px">MIT licensed · built in Swift · no dependencies<br>
+  <a href="https://github.com/konaito/opttab">GitHub</a> ·
+  <a href="https://github.com/konaito/opttab/issues">Issues</a> ·
+  <a href="https://github.com/konaito/opttab#readme">README</a></p>
+  <p class="fine">made by <a href="https://github.com/konaito">@konaito</a> — because Cmd+` kept losing his windows</p>
+</footer>
+
+<script>
+const windows = [
+  { title: "review — feature/opttab", space: 0, lines: ["$ swift test", "Executed 46 tests", "0 failures ✓", "$ git merge --no-ff"], colors: ["#28c840"] },
+  { title: "server — bun dev", space: 1, lines: ["$ bun dev", "ready on :3000", "hmr update ✓", "GET / 200 in 4ms"], colors: ["#febc2e"], tag: "Space 2" },
+  { title: "ssh prod-01", space: 2, lines: ["$ ssh prod-01", "prod-01 ~ %", "tail -f app.log", "…"], colors: ["#ff5f57"], tag: "fullscreen" },
+];
+let selected = 1;
+let current = 0;
+const hud = document.getElementById("hud");
+const toast = document.getElementById("toast");
+const dots = document.querySelectorAll(".space-dot");
+const keyTab = document.getElementById("key-tab");
+const keyOpt = document.getElementById("key-opt");
+
+function render() {
+  hud.innerHTML = windows.map((w, i) => `
+    <div class="card ${i === selected ? "selected" : ""}" data-i="${i}" role="option" aria-selected="${i === selected}" style="position:relative">
+      <div class="thumb">
+        <div class="tbar">
+          <span class="dot" style="background:#ff5f57"></span>
+          <span class="dot" style="background:#febc2e"></span>
+          <span class="dot" style="background:#28c840"></span>
+        </div>
+        <div class="body">${w.lines.map(l => `<div class="ln">${l}</div>`).join("")}</div>
+      </div>
+      ${w.tag ? `<span class="tag">${w.tag}</span>` : ""}
+      <div class="label">${w.title}</div>
+    </div>`).join("");
+  dots.forEach((d, i) => d.classList.toggle("active", i === windows[current].space));
+  hud.querySelectorAll(".card").forEach(c =>
+    c.addEventListener("click", () => { selected = +c.dataset.i; commit(); }));
+}
+function cycle(back) {
+  selected = (selected + (back ? -1 : 1) + windows.length) % windows.length;
+  render();
+  flash(keyTab);
+}
+function commit() {
+  if (selected === current) { render(); return; }
+  current = selected;
+  render();
+  toast.classList.add("show");
+  clearTimeout(commit._t);
+  commit._t = setTimeout(() => toast.classList.remove("show"), 1600);
+}
+function flash(el) {
+  el.classList.add("pressed");
+  setTimeout(() => el.classList.remove("pressed"), 140);
+}
+document.addEventListener("keydown", e => {
+  if (e.key === "Tab") { e.preventDefault(); cycle(e.shiftKey); }
+  if (e.key === "Enter") { flash(keyOpt); commit(); }
+});
+let idle = setInterval(() => { cycle(false); if (Math.random() > 0.5) commit(); }, 2600);
+["keydown", "click"].forEach(ev =>
+  document.addEventListener(ev, () => { clearInterval(idle); idle = null; }, { once: true }));
+render();
+</script>
+</body>
+</html>
