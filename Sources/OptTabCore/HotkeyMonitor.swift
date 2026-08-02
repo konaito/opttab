@@ -14,6 +14,10 @@ public final class HotkeyMonitor {
 
     public init() {}
 
+    deinit {
+        stop()
+    }
+
     /// tap作成に失敗（アクセシビリティ未許可）ならfalse
     public func start() -> Bool {
         guard eventTap == nil else { return true }
