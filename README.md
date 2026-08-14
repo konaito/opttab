@@ -43,6 +43,10 @@ brew install konaito/tap/opttab
 brew services start opttab
 ```
 
+**Upgrading from 0.1.0 or earlier?** Read [Migrating from the menu bar
+app](#migrating) first — starting the new service while the old `.app` is
+still running means both will fight over `⌥⇥`.
+
 OptTab runs as a background service managed by launchd — no menu bar icon,
 no dock icon. `brew services` handles start, stop, and launch-at-login.
 
@@ -68,6 +72,7 @@ Permissions survive upgrades: the binary launchd runs lives at a
 version-independent path (`$(brew --prefix)/var/opttab/opttab`), and macOS
 keys TCC grants for non-bundled binaries by that path.
 
+<a id="migrating"></a>
 ### Migrating from the menu bar app (≤ 0.1.0)
 
 The old `.app` and the new service both install a CGEventTap, and they will
@@ -77,7 +82,24 @@ fight over `⌥⇥`. Remove the old one:
 brew uninstall --cask opttab
 ```
 
+If **OptTab** still shows up in System Settings > General > Login Items,
+remove it there too — the old app registered itself as a login item, and
+uninstalling the cask doesn't clear that entry.
+
 `opttab doctor` warns if it finds any leftovers.
+
+### Uninstall
+
+```bash
+brew services stop opttab
+brew uninstall opttab
+rm -rf "$(brew --prefix)/var/opttab"
+```
+
+`brew uninstall opttab` alone leaves `$(brew --prefix)/var/opttab/` behind by
+design — that's what preserves your Accessibility/Screen Recording grants
+across a reinstall. Remove it only if you're done with OptTab for good, and
+stop the service first or it stays loaded.
 
 ### From source
 
@@ -131,6 +153,9 @@ brew install konaito/tap/opttab
 brew services start opttab
 ```
 
+**0.1.0以前からアップグレードする場合**: 先に[メニューバー版からの移行](#migrating-ja)
+を読むこと。旧`.app`が起動したまま新サービスを入れると `⌥⇥` を奪い合う。
+
 launchd常駐のバックグラウンドサービスとして動く。メニューバーアイコンもDockアイコンも
 出さない。起動・停止・ログイン時起動は `brew services` が管理する。
 
@@ -156,6 +181,7 @@ brew services restart opttab
 バージョンに依存しない固定パス（`$(brew --prefix)/var/opttab/opttab`）にあり、
 macOSは非バンドルバイナリのTCC許可をそのパスで識別するため。
 
+<a id="migrating-ja"></a>
 ### メニューバー版（0.1.0以前）からの移行
 
 旧`.app`と新サービスは両方ともCGEventTapを張るので `⌥⇥` を奪い合う。旧版を消すこと。
@@ -164,7 +190,23 @@ macOSは非バンドルバイナリのTCC許可をそのパスで識別するた
 brew uninstall --cask opttab
 ```
 
+システム設定 > 一般 > ログイン項目に**OptTab**がまだ残っていたら、そこでも削除する
+こと。旧版はログイン項目として自己登録しており、caskのアンインストールだけでは
+消えない。
+
 残骸があれば `opttab doctor` が警告する。
+
+### アンインストール
+
+```bash
+brew services stop opttab
+brew uninstall opttab
+rm -rf "$(brew --prefix)/var/opttab"
+```
+
+`brew uninstall opttab` だけでは `$(brew --prefix)/var/opttab/` が意図的に残る。
+これはアクセシビリティ・画面収録の許可を再インストールをまたいで維持するため。
+完全に使わなくなる場合のみ削除すること。先にサービスを止めないと常駐したままになる。
 
 ### ソースから
 
