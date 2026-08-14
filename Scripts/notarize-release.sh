@@ -34,6 +34,16 @@ codesign --force --options runtime -i dev.konaito.opttab \
     --sign "$IDENTITY" "$STAGE/opttab"
 codesign --verify --strict --verbose=2 "$STAGE/opttab"
 
+# unsafeFlags (Package.swift の -sectcreate) は llbuild の宣言済みinputに乗らないため、
+# Support/Info.plistだけ変えてもリンクがキャッシュから再利用され、埋め込みバージョンが
+# 古いままの実行ファイルが署名・公証されうる。ビルド済みバイナリ自身に聞いて確認する。
+BUILT_VERSION=$("$STAGE/opttab" --version)
+if [ "$BUILT_VERSION" != "$VERSION" ]; then
+    echo "埋め込みplistが $BUILT_VERSION（期待は $VERSION）。リンクが古い。" >&2
+    echo "rm -rf .build して再実行すること。" >&2
+    exit 1
+fi
+
 TARBALL="build/opttab-$VERSION-universal.tar.gz"
 rm -f "$TARBALL"
 tar -czf "$TARBALL" -C "$STAGE" opttab
