@@ -1815,3 +1815,56 @@ EOF
 - `LegacyInstall.candidates` / `warnings(existing:)` はTask 4で定義、Task 5で使用
 - `CLICommand.parse(_:)` / `helpText` はTask 1で定義、main.swiftで使用
 - `OptTabVersion.current` はTask 1で定義、Task 3で使用
+
+---
+
+## 実行結果と積み残し（2026-08-15 追記）
+
+Task 1〜7 と 9 を実行済み。**Task 8（Homebrew formula）と Task 10（マシンの後片付けとPR）は未実行。**
+いずれも GitHub Release の公開物、`brew install`/`brew uninstall`、別リポジトリへの push を伴い、
+ワークツリー外への副作用にあたるため保留した。
+
+最終ブランチレビュー後の修正ウェーブで以下を追加で入れた（計画には無かった項目）。
+
+- `Scripts/notarize-release.sh`: **ビルド済みバイナリ自身に `--version` を聞く検証**。
+  `Support/Info.plist` は `unsafeFlags` の `-sectcreate` 経由なので llbuild のリンク入力として
+  宣言されておらず（`.build/release.yaml` で確認済み）、バージョンだけ上げるとリンクがキャッシュ
+  され、古い埋め込みバージョンのまま署名・公証・配布されうる
+- `Scripts/install-local.sh`: `homebrew.mxcl.opttab` も bootout する。開発者が `brew services` も
+  使っていると同じパスのエージェントが2つ走り、CGEventTap が二重になる
+- `DaemonLaunchCheck`: `<prefix>/var/opttab/opttab` 以外のパスからの常駐を exit 3 で拒否する。
+  formula が `bin.install` する以上 `$(brew --prefix)/bin/opttab` が PATH に載るため、
+  素で `opttab` と打つと TCC 未登録の Cellar パスで2つ目のデーモンが立つ。
+  開発用に `OPTTAB_ALLOW_ANY_PATH=1` で迂回できる
+- `doctor`: 開発用 LaunchAgent を「旧インストールの残骸」と誤検出しなくなった
+  （plist の `ProgramArguments[0]` が固定サービスパスなら正常とみなす）。
+  加えて `kill(pid, 0)` による生存確認と、未起動時の権限を `unknown` 表示にする修正
+
+### Task 8 に追加すべき検証（レビューで挙がった未計測リスク）
+
+- **`post_install` の後に署名が保たれているか。** Homebrew は変更した arm64 バイナリを
+  ad-hoc 再署名することがある。そうなると signing identifier が `opttab` になり、
+  TCC 許可を発行したときの code requirement と一致しなくなって権限が飛ぶ。
+  **この設計全体で最も価値の高い未計測項目。** ダウンロード直後ではなく
+  `post_install` の後に確認すること。
+
+  ```bash
+  codesign -dv "$(brew --prefix)/var/opttab/opttab" 2>&1 \
+    | grep -E 'Identifier=dev\.konaito\.opttab'
+  ```
+
+- cask を tap から削除した後、素の `brew install konaito/tap/opttab` が formula に
+  解決されるか（計画の Step 4 は `--formula` を明示している）
+- `brew upgrade` がサービスを自動再起動するか（計画 Task 8 Step 5。未計測のまま）
+
+### 保留した項目
+
+- **`doctor` は仕様が定めた3つのシグナルのうち1つしか見ていない。** 仕様（設計docの
+  「CLI」節）は状態ファイルに加えて `launchctl print` の実行状態と、動作中の
+  `OptTab.app` プロセスの検出を求めているが、実装は状態ファイルのみ。
+  計画の Task 4/5 の時点で落ちており、実装は計画に忠実。
+  影響: `keep_alive true` のクラッシュループは再起動のたびに新しい pid で
+  新鮮な `status.json` を書くため、`doctor` は毎回 `running` と報告して異常を示さない。
+  また、確認対象の2ディレクトリ外に置かれた旧 `.app` が動いていても警告が出ない。
+  プロセス起動を伴うため `Doctor` の形とテスト戦略が変わる。Task 8 で実サービス相手に
+  `doctor` を動かす場面があるので、そこで一緒に入れるのが安い
