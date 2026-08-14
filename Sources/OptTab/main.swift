@@ -10,8 +10,7 @@ case .help:
     print(CLICommand.helpText)
 
 case .doctor:
-    // Task 5 で Doctor.run() に差し替える
-    print(CLICommand.helpText)
+    exit(Doctor.run())
 
 case .unknown(let argument):
     FileHandle.standardError.write(
