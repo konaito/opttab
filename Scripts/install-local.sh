@@ -20,6 +20,11 @@ mkdir -p "$DEST"
 # 実行中の Mach-O へ直接 cp すると ETXTBSY。先に止めて rm する。
 # inode は変わるがパスは同じなので TCC の許可は維持される。
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
+# brew services 経由で同じバイナリを起動していると、2つのエージェントが
+# 同じパスを起動して ⌥⇥ を奪い合う。開発用に差し替える間は落としておく。
+if launchctl bootout "gui/$UID/homebrew.mxcl.opttab" 2>/dev/null; then
+    echo "note: brew services のエージェントを停止した。戻すときは brew services start opttab"
+fi
 rm -f "$DEST/opttab"
 cp "$BIN" "$DEST/opttab"
 
@@ -27,7 +32,7 @@ cp "$BIN" "$DEST/opttab"
 # Developer ID が無い環境では ad-hoc に落とすが、その場合は
 # リビルドのたびに再許可が必要になる。
 IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-    | awk -F'"' '/Developer ID Application/{print $2; exit}')
+    | awk -F'"' '/Developer ID Application/{print $2; exit}' || true)
 if [ -n "$IDENTITY" ]; then
     codesign --force --options runtime -i dev.konaito.opttab \
         --sign "$IDENTITY" "$DEST/opttab"
