@@ -19,6 +19,19 @@ case .unknown(let argument):
     exit(2)
 
 case .daemon:
+    // TCC は実行ファイルの実パスで許可を識別する。固定パス以外から常駐すると
+    // 許可の無いパスで再プロンプトが出て、イベントタップも二重になる。
+    let resolvedPath = URL(fileURLWithPath: CommandLine.arguments[0])
+        .resolvingSymlinksInPath().path
+    let allowAnyPath = ProcessInfo.processInfo
+        .environment[DaemonLaunchCheck.overrideEnvironmentKey] == "1"
+    if !allowAnyPath && !DaemonLaunchCheck.isSupportedDaemonPath(resolvedPath) {
+        FileHandle.standardError.write(Data(
+            (DaemonLaunchCheck.refusalMessage(
+                resolvedExecutablePath: resolvedPath) + "\n").utf8))
+        exit(3)
+    }
+
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
