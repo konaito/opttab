@@ -16,15 +16,17 @@ public enum DaemonLaunchCheck {
     public static let overrideEnvironmentKey = "OPTTAB_ALLOW_ANY_PATH"
 
     /// 常駐を拒否するときに stderr へ出す説明。
+    /// CLIの利用者向け出力は他（help / doctor）と揃えて英語にする。
     public static func refusalMessage(resolvedExecutablePath: String) -> String {
         """
-        opttab: この場所からは常駐できない: \(resolvedExecutablePath)
-          常駐できるのは <brew prefix>/var/opttab/opttab だけ。
-          macOS は非バンドルバイナリの TCC 許可を実行ファイルの実パスで識別するため、
-          別パスから起動するとアクセシビリティと画面収録が再度要求され、
-          イベントタップが二重になって ⌥⇥ を奪い合う。
-          サービスとして起動する: brew services start opttab
-          （開発時に意図して別パスから動かすなら \(overrideEnvironmentKey)=1）
+        opttab: refusing to run as a service from \(resolvedExecutablePath)
+          Only <brew prefix>/var/opttab/opttab may run as the background service.
+          macOS keys TCC grants for non-bundled binaries by the executable's
+          resolved path, so starting the daemon from any other path re-prompts
+          for Accessibility and Screen Recording and adds a second event tap
+          fighting over ⌥⇥.
+          start the service:  brew services start opttab
+          (for development only, \(overrideEnvironmentKey)=1 skips this check)
         """
     }
 }
