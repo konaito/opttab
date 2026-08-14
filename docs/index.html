@@ -79,7 +79,7 @@
     {
       "@type": "Question",
       "name": "How do I install OptTab?",
-      "acceptedAnswer": { "@type": "Answer", "text": "brew install --cask konaito/tap/opttab installs the notarized app into /Applications. You can also build from source with Swift: clone the repo and run ./Scripts/bundle.sh." }
+      "acceptedAnswer": { "@type": "Answer", "text": "brew install konaito/tap/opttab followed by brew services start opttab installs OptTab and starts it as a background launchd service — no menu bar icon, no dock icon. You can also build from source with Swift: clone the repo and run ./Scripts/install-local.sh." }
     }
   ]
 }
@@ -552,7 +552,7 @@ footer .fine { margin-top: 14px; font-family: var(--mono); font-size: 11.5px; }
 
 <section id="install">
   <span class="eyebrow">Install</span>
-  <h2>Brew, copy, switch.</h2>
+  <h2>Brew, start, switch.</h2>
   <div class="install-box">
     <div class="bar">
       <span class="dot" style="background:#ff5f57"></span>
@@ -560,18 +560,18 @@ footer .fine { margin-top: 14px; font-family: var(--mono); font-size: 11.5px; }
       <span class="dot" style="background:#28c840"></span>
       <span class="title">ghostty — zsh</span>
     </div>
-    <pre><span class="p">$</span> brew install --cask konaito/tap/opttab   <span class="c"># notarized — no build needed</span>
-<span class="p">$</span> open /Applications/OptTab.app
+    <pre><span class="p">$</span> brew install konaito/tap/opttab
+<span class="p">$</span> brew services start opttab   <span class="c"># launchd service — no menu bar icon</span>
 
 <span class="c"># or build from source:</span>
-<span class="p">$</span> brew install konaito/tap/opttab
-<span class="p">$</span> git clone https://github.com/konaito/opttab.git && cd opttab && ./Scripts/bundle.sh</pre>
+<span class="p">$</span> git clone https://github.com/konaito/opttab.git && cd opttab && ./Scripts/install-local.sh</pre>
   </div>
   <div class="perm-note">
     <span>⚠️</span>
-    <span>First launch asks for <strong>Accessibility</strong> (the hotkey) and
-    <strong>Screen Recording</strong> (thumbnails — optional, icon cards otherwise).
-    OptTab lives in your menu bar; enable "Launch at Login" from there.</span>
+    <span>First start asks for <strong>Accessibility</strong> (required — the hotkey).
+    <strong>Screen Recording</strong> is optional (icon cards instead of thumbnails
+    otherwise). <strong>brew services</strong> manages start, stop, and launch-at-login —
+    OptTab runs with no menu bar icon.</span>
   </div>
 </section>
 
