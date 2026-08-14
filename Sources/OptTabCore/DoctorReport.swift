@@ -14,17 +14,29 @@ public enum LegacyInstall {
         }
     }
 
+    /// 旧メニューバー版が残す、あるいは Scripts/install-local.sh が作る LaunchAgent。
+    public static let launchAgentPath =
+        NSString(string: "~/Library/LaunchAgents/dev.konaito.opttab.plist")
+            .expandingTildeInPath
+
     public static let candidates: [Candidate] = [
         Candidate(path: "/Applications/OptTab.app",
                   advice: "brew uninstall --cask opttab"),
         Candidate(path: NSString(string: "~/Applications/OptTab.app")
                     .expandingTildeInPath,
                   advice: "rm -rf ~/Applications/OptTab.app"),
-        Candidate(path: NSString(string: "~/Library/LaunchAgents/dev.konaito.opttab.plist")
-                    .expandingTildeInPath,
+        Candidate(path: launchAgentPath,
                   advice: "launchctl bootout gui/$UID/dev.konaito.opttab && "
                         + "rm -f ~/Library/LaunchAgents/dev.konaito.opttab.plist"),
     ]
+
+    /// dev.konaito.opttab.plist は2種類ある。
+    /// - Scripts/install-local.sh が作る開発用（ProgramArguments が <prefix>/var/opttab/opttab を指す）→ 正常、警告しない
+    /// - 旧メニューバー版が残したもの（.app を指す）→ 二重タップの原因、警告する
+    public static func launchAgentIsLegacy(programArgument: String?) -> Bool {
+        guard let programArgument else { return true }
+        return !DaemonLaunchCheck.isSupportedDaemonPath(programArgument)
+    }
 
     public static func warnings(existing: Set<String>) -> [String] {
         candidates
@@ -60,8 +72,12 @@ public struct DoctorReport: Equatable {
         self.warnings = warnings
     }
 
+    /// - Parameter pidAlive: status.json の pid が生きているか。
+    ///   ハートビートの鮮度だけでは、停止直後の最大30秒を取りこぼす。
+    ///   判定に使う値は呼び出し側（Doctor）が観測して渡す。
     public static func build(status: DaemonStatus?,
                              now: Date,
+                             pidAlive: Bool,
                              legacyExisting: Set<String>) -> DoctorReport {
         let warnings = LegacyInstall.warnings(existing: legacyExisting)
 
@@ -75,8 +91,9 @@ public struct DoctorReport: Equatable {
         let fresh = DaemonStatus.isFresh(status, now: now,
                                          tolerance: freshnessTolerance)
         return DoctorReport(
-            service: fresh ? .running(pid: status.pid, version: status.version)
-                           : .notRunning,
+            service: fresh && pidAlive
+                ? .running(pid: status.pid, version: status.version)
+                : .notRunning,
             accessibility: status.accessibility,
             screenRecording: status.screenRecording,
             warnings: warnings)
@@ -94,6 +111,9 @@ public struct DoctorReport: Equatable {
 
     public func render() -> String {
         var lines: [String] = []
+        // 状態ファイルが無いときの権限値は「未許可」ではなく「不明」。
+        // 未起動のユーザーにMISSINGと許可手順を出すのは誤誘導になる。
+        var permissionsKnown = true
 
         switch service {
         case .running(let pid, let version):
@@ -104,18 +124,24 @@ public struct DoctorReport: Equatable {
         case .statusUnavailable:
             lines.append("service:          not running (no status file)")
             lines.append("  start it:       brew services start opttab")
+            permissionsKnown = false
         }
 
-        lines.append("Accessibility:    \(accessibility ? "granted" : "MISSING (required for the ⌥⇥ hotkey)")")
-        if !accessibility {
-            lines.append("  grant it:       System Settings > Privacy & Security > Accessibility")
-            lines.append("  open directly:  open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'")
-        }
+        if permissionsKnown {
+            lines.append("Accessibility:    \(accessibility ? "granted" : "MISSING (required for the ⌥⇥ hotkey)")")
+            if !accessibility {
+                lines.append("  grant it:       System Settings > Privacy & Security > Accessibility")
+                lines.append("  open directly:  open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'")
+            }
 
-        lines.append("Screen Recording: \(screenRecording ? "granted" : "missing (optional — thumbnails are replaced by icons)")")
-        if !screenRecording {
-            lines.append("  grant it:       System Settings > Privacy & Security > Screen Recording")
-            lines.append("  open directly:  open 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'")
+            lines.append("Screen Recording: \(screenRecording ? "granted" : "missing (optional — thumbnails are replaced by icons)")")
+            if !screenRecording {
+                lines.append("  grant it:       System Settings > Privacy & Security > Screen Recording")
+                lines.append("  open directly:  open 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'")
+            }
+        } else {
+            lines.append("Accessibility:    unknown (start the service first)")
+            lines.append("Screen Recording: unknown (start the service first)")
         }
 
         for warning in warnings {
