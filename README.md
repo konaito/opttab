@@ -23,6 +23,7 @@ current Space. OptTab switches between windows of the **active app** across
   calls, no injection
 - **Graceful degradation** — works without Screen Recording permission (icon cards
   instead of thumbnails)
+- **No menu bar icon** — runs as a launchd service, managed by `brew services`
 
 ## Keys
 
@@ -37,35 +38,56 @@ current Space. OptTab switches between windows of the **active app** across
 
 ## Install
 
-### Homebrew (recommended)
-
 ```bash
-brew install --cask konaito/tap/opttab
+brew install konaito/tap/opttab
+brew services start opttab
 ```
 
-Notarized prebuilt app — installs straight into /Applications. No build tools needed.
+OptTab runs as a background service managed by launchd — no menu bar icon,
+no dock icon. `brew services` handles start, stop, and launch-at-login.
 
-Prefer building locally? The tap also has a source formula:
+On first start it asks for **Accessibility** (required — the hotkey).
+Grant it in System Settings > Privacy & Security > Accessibility for
+`$(brew --prefix)/var/opttab/opttab`. **Screen Recording** is optional;
+without it the HUD shows icons instead of live thumbnails.
+
+Check the service and both permissions at once:
 
 ```bash
-brew install konaito/tap/opttab   # builds from source
-cp -R "$(brew --prefix opttab)/OptTab.app" ~/Applications/
+opttab doctor
 ```
+
+### Upgrading
+
+```bash
+brew upgrade opttab
+brew services restart opttab
+```
+
+Permissions survive upgrades: the binary launchd runs lives at a
+version-independent path (`$(brew --prefix)/var/opttab/opttab`), and macOS
+keys TCC grants for non-bundled binaries by that path.
+
+### Migrating from the menu bar app (≤ 0.1.0)
+
+The old `.app` and the new service both install a CGEventTap, and they will
+fight over `⌥⇥`. Remove the old one:
+
+```bash
+brew uninstall --cask opttab
+```
+
+`opttab doctor` warns if it finds any leftovers.
 
 ### From source
 
 ```bash
 git clone https://github.com/konaito/opttab.git
 cd opttab
-./Scripts/bundle.sh        # swift build + .app bundle + codesign → ~/Applications
-open ~/Applications/OptTab.app
+./Scripts/install-local.sh
 ```
 
 Requirements: macOS 14+, Xcode Command Line Tools.
-
-First launch asks for **Accessibility** (required — the hotkey) and
-**Screen Recording** (optional — thumbnails). OptTab lives in the menu bar;
-enable *Launch at Login* from its menu.
 
 ## How it works
 
@@ -105,15 +127,52 @@ OptTabは**アクティブアプリのウィンドウ**を、**別Space・フル
 ### インストール
 
 ```bash
-git clone https://github.com/konaito/opttab.git
-cd opttab
-./Scripts/bundle.sh
-open ~/Applications/OptTab.app
+brew install konaito/tap/opttab
+brew services start opttab
 ```
 
-初回起動時に**アクセシビリティ**（必須・ホットキー用）と**画面収録**（任意・サムネイル用）の
-許可を求められる。画面収録を許可しなくてもアイコン表示で動作する。
-メニューバーの OptTab アイコンから「ログイン時に起動」を有効にできる。
+launchd常駐のバックグラウンドサービスとして動く。メニューバーアイコンもDockアイコンも
+出さない。起動・停止・ログイン時起動は `brew services` が管理する。
+
+初回起動時に**アクセシビリティ**（必須・ホットキー用）を求められる。
+システム設定 > プライバシーとセキュリティ > アクセシビリティ で
+`$(brew --prefix)/var/opttab/opttab` を許可する。
+**画面収録**は任意で、許可しない場合はサムネイルの代わりにアイコンが表示される。
+
+状態と権限はまとめて確認できる。
+
+```bash
+opttab doctor
+```
+
+### アップグレード
+
+```bash
+brew upgrade opttab
+brew services restart opttab
+```
+
+権限はアップグレードをまたいで維持される。launchdが起動するバイナリは
+バージョンに依存しない固定パス（`$(brew --prefix)/var/opttab/opttab`）にあり、
+macOSは非バンドルバイナリのTCC許可をそのパスで識別するため。
+
+### メニューバー版（0.1.0以前）からの移行
+
+旧`.app`と新サービスは両方ともCGEventTapを張るので `⌥⇥` を奪い合う。旧版を消すこと。
+
+```bash
+brew uninstall --cask opttab
+```
+
+残骸があれば `opttab doctor` が警告する。
+
+### ソースから
+
+```bash
+git clone https://github.com/konaito/opttab.git
+cd opttab
+./Scripts/install-local.sh
+```
 
 ### 操作
 
