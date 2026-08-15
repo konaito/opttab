@@ -75,11 +75,20 @@ keys TCC grants for non-bundled binaries by that path.
 <a id="migrating"></a>
 ### Migrating from the menu bar app (≤ 0.1.0)
 
-The old `.app` and the new service both install a CGEventTap, and they will
-fight over `⌥⇥`. Remove the old one:
+Remove the old one **before** installing the formula:
 
 ```bash
 brew uninstall --cask opttab
+```
+
+Two reasons the order matters. The old `.app` and the new service both install
+a CGEventTap and will fight over `⌥⇥`. And while the cask is still installed it
+owns the name `opttab`, so the formula installs *without linking* and `opttab`
+never lands on your `PATH`. If you already installed in the wrong order:
+
+```bash
+brew uninstall --cask opttab
+brew link opttab
 ```
 
 If **OptTab** still shows up in System Settings > General > Login Items,
@@ -184,10 +193,19 @@ macOSは非バンドルバイナリのTCC許可をそのパスで識別するた
 <a id="migrating-ja"></a>
 ### メニューバー版（0.1.0以前）からの移行
 
-旧`.app`と新サービスは両方ともCGEventTapを張るので `⌥⇥` を奪い合う。旧版を消すこと。
+formulaを入れる**前に**旧版を消すこと。
 
 ```bash
 brew uninstall --cask opttab
+```
+
+順序が効く理由は2つある。旧`.app`と新サービスは両方ともCGEventTapを張るので `⌥⇥` を
+奪い合う。加えて、caskがインストールされたままだとcaskが `opttab` という名前を保持する
+ため、**formulaがリンクされず** `opttab` が `PATH` に載らない。逆順で入れてしまったら:
+
+```bash
+brew uninstall --cask opttab
+brew link opttab
 ```
 
 システム設定 > 一般 > ログイン項目に**OptTab**がまだ残っていたら、そこでも削除する
