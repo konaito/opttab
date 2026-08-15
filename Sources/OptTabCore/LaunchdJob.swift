@@ -5,11 +5,19 @@ import Foundation
 /// 状態ファイルのハートビートだけでは見えないものがある。`keep_alive` の
 /// クラッシュループは再起動のたびに新しい pid で新鮮な status.json を書くため、
 /// ハートビートは常に健全に見える。launchd 側の記録がその嘘を破る。
+///
+/// 実測（macOS 26.5）で確かめた挙動:
+/// - 健全: `state = running` / `runs = 1` / `last exit code = (never exited)`
+/// - クラッシュループ: `state = spawn scheduled` / `last exit code = <n>`
+/// - `runs` は launchd が再起動するたびに増える（1→2→3）。
+///   `brew services restart` はジョブを作り直すので 1 に戻る
+/// - **SIGKILL で殺された場合 `last exit code` の行自体が出ない。**
+///   そのため終了コードだけを見ていると信号殺しを取りこぼす。`runs` はこれを拾う
 public struct LaunchdJob: Equatable {
     public enum State: Equatable {
         case running(pid: Int32)
-        /// launchd が再起動をスロットリング中。実測では、即座に終了する
-        /// keep_alive ジョブはこの状態に落ち着く
+        /// launchd が再起動をスロットリング中。即座に終了する keep_alive
+        /// ジョブはこの状態に落ち着く
         case spawnScheduled
         case notRunning
         /// 解釈できなかった state。macOS のバージョン差で語彙が変わっても
@@ -20,18 +28,21 @@ public struct LaunchdJob: Equatable {
     public enum LastExit: Equatable {
         case neverExited
         case code(Int)
-        /// `last exit code` 行が無かった
+        /// `last exit code` 行が無かった（SIGKILL 直後がこれ）
         case unknown
     }
 
     public let label: String
     public let state: State
     public let lastExit: LastExit
+    /// launchd がこのジョブを起動した回数。読めなければ nil。
+    public let runs: Int?
 
-    public init(label: String, state: State, lastExit: LastExit) {
+    public init(label: String, state: State, lastExit: LastExit, runs: Int? = nil) {
         self.label = label
         self.state = state
         self.lastExit = lastExit
+        self.runs = runs
     }
 
     public var isRunning: Bool {
@@ -49,24 +60,39 @@ public struct LaunchdJob: Equatable {
         }
     }
 
-    /// 異常があれば人間向けの一文を返す。正常なら nil。
+    /// **今まさに**壊れている場合だけ一文を返す。
     ///
-    /// OptTab の常駐は正常なら決して終了しない。したがって終了コードが
-    /// 記録されていること自体が、値によらず異常を意味する。
+    /// これだけが終了コードを失敗にする。過去に一度落ちて自力で復帰した
+    /// サービスまで永久に赤くし続けるのは、健全な今の状態を偽ることになる。
     public var crashSignal: String? {
-        let exitDetail: String
-        switch lastExit {
-        case .code(let code): exitDetail = " (last exit code \(code))"
-        case .neverExited, .unknown: exitDetail = ""
+        guard state == .spawnScheduled else { return nil }
+        let detail: String
+        if case .code(let code) = lastExit {
+            detail = " (last exit code \(code))"
+        } else {
+            detail = ""
         }
+        return "launchd is throttling respawns\(detail) — the service is crash-looping"
+    }
 
-        if state == .spawnScheduled {
-            return "launchd is throttling respawns\(exitDetail) — "
-                 + "the service is crash-looping"
+    /// 過去に落ちて launchd が復帰させた形跡。警告はするが失敗にはしない。
+    ///
+    /// `runs` を主信号にしているのは、SIGKILL のように `last exit code` が
+    /// 残らない死に方も拾えるため。
+    public var restartSignal: String? {
+        guard crashSignal == nil else { return nil }
+
+        let restarts = (runs ?? 1) - 1
+        var detail = ""
+        if case .code(let code) = lastExit { detail = ", last exit code \(code)" }
+
+        if restarts > 0 {
+            return "the service has been restarted \(restarts) time"
+                 + (restarts == 1 ? "" : "s")
+                 + " by launchd\(detail) — it died and recovered"
         }
         if case .code = lastExit {
-            return "the service has exited at least once\(exitDetail) — "
-                 + "launchd restarted it"
+            return "the service has exited at least once\(detail) — launchd restarted it"
         }
         return nil
     }
@@ -106,7 +132,10 @@ public enum LaunchctlPrintParser {
             lastExit = Int(value).map(LaunchdJob.LastExit.code) ?? .unknown
         }
 
-        return LaunchdJob(label: label, state: state, lastExit: lastExit)
+        return LaunchdJob(label: label,
+                          state: state,
+                          lastExit: lastExit,
+                          runs: firstValue(of: "runs", in: output).flatMap(Int.init))
     }
 
     /// 最初に現れた `key = value` を返す。

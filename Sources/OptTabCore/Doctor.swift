@@ -49,16 +49,16 @@ public enum Doctor {
     /// brew services 経由と、Scripts/install-local.sh が作る開発用の両方を見る。
     public static let serviceLabels = ["homebrew.mxcl.opttab", "dev.konaito.opttab"]
 
-    /// 最初に見つかったジョブを返す。読み取り関数を差し替えられるようにしてある。
-    public static func launchdJob(labels: [String],
-                                  printJob: (String) -> String?) -> LaunchdJob? {
-        for label in labels {
-            guard let output = printJob(label),
-                  let job = LaunchctlPrintParser.parse(output, label: label)
-            else { continue }
-            return job
+    /// launchd が知っている全ラベルのジョブを返す。
+    ///
+    /// 最初の1件で打ち切らないのは、brew services と install-local.sh の
+    /// 両方が同時に走っている二重常駐を見えるようにするため。
+    /// 読み取り関数を差し替えられるようにしてある。
+    public static func launchdJobs(labels: [String],
+                                   printJob: (String) -> String?) -> [LaunchdJob] {
+        labels.compactMap { label in
+            printJob(label).flatMap { LaunchctlPrintParser.parse($0, label: label) }
         }
-        return nil
     }
 
     /// `launchctl print gui/<uid>/<label>` を実行して標準出力を返す。
@@ -104,7 +104,7 @@ public enum Doctor {
             now: Date(),
             pidAlive: pidAlive,
             legacyExisting: existing,
-            launchd: launchdJob(labels: serviceLabels, printJob: launchctlPrint),
+            launchdJobs: launchdJobs(labels: serviceLabels, printJob: launchctlPrint),
             runningLegacyApps: LegacyInstall.runningLegacyApps(runningApps()))
         print(report.render())
         return report.exitCode

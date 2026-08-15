@@ -84,19 +84,51 @@ final class LaunchdJobTests: XCTestCase {
         XCTAssertTrue(signal!.contains("7"))
     }
 
-    // 今は動いているが、過去に一度落ちている。
-    // 決して終了しないはずの常駐に終了コードが付くのは異常
-    func testRunningAfterAnExitIsFlagged() {
+    // 今は動いている以上 crashSignal ではない。復帰済みとして restartSignal に出す
+    func testRunningAfterAnExitIsARestartNotACrash() {
         let job = LaunchctlPrintParser.parse(
             "\tstate = running\n\tpid = 42\n\tlast exit code = 1", label: "x")
-        XCTAssertNotNil(job?.crashSignal)
-        XCTAssertTrue(job!.crashSignal!.contains("exited at least once"))
+        XCTAssertNil(job?.crashSignal)
+        XCTAssertTrue(job!.restartSignal!.contains("exited at least once"))
     }
 
-    // 終了コード0でも、常駐が終了していれば異常として扱う
-    func testCleanExitIsStillFlagged() {
+    // 終了コード0でも、決して終了しないはずの常駐が終了していれば記録する
+    func testCleanExitIsStillReported() {
         let job = LaunchctlPrintParser.parse(
             "\tstate = running\n\tpid = 42\n\tlast exit code = 0", label: "x")
+        XCTAssertNotNil(job?.restartSignal)
+    }
+
+    // --- runs ---
+
+    // 実測: launchd が再起動するたびに増え、brew services restart で1に戻る
+    func testParsesRuns() {
+        XCTAssertEqual(LaunchctlPrintParser.parse(healthy, label: "x")?.runs, 1)
+    }
+
+    func testRunsIsNilWhenAbsent() {
+        XCTAssertNil(LaunchctlPrintParser.parse("\tstate = running\n\tpid = 5",
+                                                label: "x")?.runs)
+    }
+
+    // SIGKILL で殺されると last exit code の行が出ない。
+    // 実測で確認した死に方で、runs だけが記録を持つ
+    func testRunsCatchesSignalKillWithoutExitCode() {
+        let job = LaunchctlPrintParser.parse(
+            "\tstate = running\n\truns = 2\n\tpid = 9", label: "x")
+        XCTAssertEqual(job?.lastExit, .unknown)
+        XCTAssertNotNil(job?.restartSignal)
+        XCTAssertTrue(job!.restartSignal!.contains("restarted 1 time"))
+    }
+
+    func testRunsOneMeansNoRestart() {
+        XCTAssertNil(LaunchctlPrintParser.parse(healthy, label: "x")?.restartSignal)
+    }
+
+    // クラッシュループ中は crashSignal だけを出す。二重に言わない
+    func testCrashLoopSuppressesRestartSignal() {
+        let job = LaunchctlPrintParser.parse(crashing, label: "x")
         XCTAssertNotNil(job?.crashSignal)
+        XCTAssertNil(job?.restartSignal)
     }
 }

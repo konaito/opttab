@@ -76,62 +76,84 @@ public struct DoctorReport: Equatable {
     public let service: Service
     public let accessibility: Bool
     public let screenRecording: Bool
-    /// launchd 側から見たジョブ。問い合わせできなかったときは nil。
-    public let launchd: LaunchdJob?
+    /// 問い合わせたラベルのうち、launchd が知っていたジョブ。
+    /// 2つ以上が running なら、それ自体が二重常駐の証拠になる。
+    public let launchdJobs: [LaunchdJob]
     /// 動作中の旧メニューバー版のバンドルパス。空なら競合していない。
     public let runningLegacyApps: [String]
     public let warnings: [String]
-    /// サービスとして異常か。残骸ファイルの警告と違い、これは終了コードに効く。
-    public let unhealthy: Bool
 
     public init(service: Service,
                 accessibility: Bool,
                 screenRecording: Bool,
-                launchd: LaunchdJob? = nil,
+                launchdJobs: [LaunchdJob] = [],
                 runningLegacyApps: [String] = [],
-                warnings: [String],
-                unhealthy: Bool = false) {
+                warnings: [String]) {
         self.service = service
         self.accessibility = accessibility
         self.screenRecording = screenRecording
-        self.launchd = launchd
+        self.launchdJobs = launchdJobs
         self.runningLegacyApps = runningLegacyApps
         self.warnings = warnings
-        self.unhealthy = unhealthy
+    }
+
+    /// ⌥⇥ が今まさに効かない状態か。持ち回らず、材料から導く。
+    ///
+    /// 残骸「ファイル」は将来問題になりうるだけなので含めない。
+    /// 過去に落ちて復帰済みのサービスも含めない（今は動いている）。
+    public var unhealthy: Bool {
+        !runningLegacyApps.isEmpty
+            || launchdJobs.contains { $0.crashSignal != nil }
+            || launchdJobs.filter(\.isRunning).count > 1
     }
 
     /// - Parameter pidAlive: status.json の pid が生きているか。
     ///   ハートビートの鮮度だけでは、停止直後の最大30秒を取りこぼす。
     ///   判定に使う値は呼び出し側（Doctor）が観測して渡す。
-    /// - Parameter launchd: `launchctl print` から見たジョブ。問い合わせできなければ nil。
+    /// - Parameter launchdJobs: 問い合わせた各ラベルについて launchd が知っていたジョブ。
     /// - Parameter runningLegacyApps: 動作中の旧メニューバー版のバンドルパス。
     public static func build(status: DaemonStatus?,
                              now: Date,
                              pidAlive: Bool,
                              legacyExisting: Set<String>,
-                             launchd: LaunchdJob? = nil,
+                             launchdJobs: [LaunchdJob] = [],
                              runningLegacyApps: [String] = []) -> DoctorReport {
         var warnings = LegacyInstall.warnings(existing: legacyExisting)
-        var unhealthy = false
 
-        // 動作中の旧版は ⌥⇥ を実際に奪い合う。残骸ファイルと違い今そこにある障害
+        // 動作中の旧版は ⌥⇥ を実際に奪い合う。残骸ファイルと違い今そこにある障害。
+        // .app は移動されている可能性があるので、cask 前提の助言だけにはしない
         for path in runningLegacyApps {
             warnings.append(
                 "the old menu bar app is RUNNING: \(path)\n"
                 + "    it installs a second event tap and will fight over ⌥⇥\n"
-                + "    quit it, then: brew uninstall --cask opttab")
-            unhealthy = true
+                + "    quit it, then remove it: brew uninstall --cask opttab "
+                + "(or delete the bundle if it was moved)")
         }
 
-        if let launchd {
-            if let signal = launchd.crashSignal {
-                warnings.append("\(launchd.label): \(signal)")
-                unhealthy = true
-            } else if status != nil, !launchd.isRunning {
-                // 状態ファイルは残っているのに launchd はジョブが走っていないと言う。
-                // クラッシュ中ならそちらで報告済みなので、ここは静かな不一致だけを拾う。
+        // 2つのラベルが同時に走る＝brew services と install-local.sh の二重常駐。
+        // 状態ファイルは片方しか映さないので、ここでしか見えない
+        let running = launchdJobs.filter(\.isRunning)
+        if running.count > 1 {
+            warnings.append(
+                "two launchd jobs are running the daemon: "
+                + running.map(\.label).joined(separator: ", ") + "\n"
+                + "    they install two event taps and will fight over ⌥⇥\n"
+                + "    keep one: brew services stop opttab, or "
+                + "launchctl bootout gui/$UID/dev.konaito.opttab")
+        }
+
+        for job in launchdJobs {
+            if let signal = job.crashSignal {
+                warnings.append("\(job.label): \(signal)\n"
+                    + "    see why: \(logPathHint)")
+            } else if let signal = job.restartSignal {
+                warnings.append("\(job.label): \(signal)\n"
+                    + "    see why: \(logPathHint)\n"
+                    + "    clear the record: brew services restart opttab")
+            } else if status != nil, job.state == .notRunning {
+                // 状態ファイルは残っているのに launchd はジョブが走っていないと言う
                 warnings.append(
-                    "\(launchd.label): launchd does not report a running job, "
+                    "\(job.label): launchd does not report a running job, "
                     + "but a status file is present")
             }
         }
@@ -140,10 +162,9 @@ public struct DoctorReport: Equatable {
             return DoctorReport(service: .statusUnavailable,
                                 accessibility: false,
                                 screenRecording: false,
-                                launchd: launchd,
+                                launchdJobs: launchdJobs,
                                 runningLegacyApps: runningLegacyApps,
-                                warnings: warnings,
-                                unhealthy: unhealthy)
+                                warnings: warnings)
         }
 
         let fresh = DaemonStatus.isFresh(status, now: now,
@@ -154,11 +175,13 @@ public struct DoctorReport: Equatable {
                 : .notRunning,
             accessibility: status.accessibility,
             screenRecording: status.screenRecording,
-            launchd: launchd,
+            launchdJobs: launchdJobs,
             runningLegacyApps: runningLegacyApps,
-            warnings: warnings,
-            unhealthy: unhealthy)
+            warnings: warnings)
     }
+
+    /// formula の service ブロックが指定しているログの置き場所。
+    static let logPathHint = "$(brew --prefix)/var/log/opttab.log"
 
     /// アクセシビリティはホットキーに必須。画面収録はサムネイル用の任意権限。
     /// クラッシュループや動作中の旧版も、⌥⇥ が実際に効かない状態なので失敗にする。
@@ -192,10 +215,12 @@ public struct DoctorReport: Equatable {
 
         // launchd 側の見え方は状態ファイルとは独立した2つ目の証拠。
         // 食い違っていることそのものが情報なので、一致していても必ず出す。
-        if let launchd {
-            lines.append("launchd:          \(launchd.label) — \(launchd.stateDescription)")
-        } else {
+        if launchdJobs.isEmpty {
             lines.append("launchd:          unknown (no loaded job found)")
+        } else {
+            for job in launchdJobs {
+                lines.append("launchd:          \(job.label) — \(job.stateDescription)")
+            }
         }
 
         if permissionsKnown {
