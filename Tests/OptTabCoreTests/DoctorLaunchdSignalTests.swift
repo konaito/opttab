@@ -90,6 +90,38 @@ final class DoctorLaunchdSignalTests: XCTestCase {
             .warnings.contains { $0.contains("does not report a running job") })
     }
 
+    // 止まっているジョブに「死んで復帰した」とは言えない。
+    // 過去の再起動記録があっても、今の事実（走っていない）を優先して報告する
+    func testStoppedJobWithPastExitDoesNotClaimRecovery() {
+        let r = report([job(.notRunning, .code(0), runs: 2)])
+        XCTAssertFalse(r.warnings.contains { $0.contains("recovered") })
+        XCTAssertFalse(r.warnings.contains { $0.contains("restarted") })
+        XCTAssertTrue(r.warnings.contains { $0.contains("does not report a running job") })
+    }
+
+    // pid が読めなかっただけの running からは再起動の警告を落とさない
+    func testUnparsedRunningStateKeepsRestartSignal() {
+        XCTAssertTrue(report([job(.other("running"), .unknown, runs: 2)])
+            .warnings.contains { $0.contains("restarted 1 time") })
+    }
+
+    // --- 助言はラベルに合わせる ---
+
+    // brew が管理していないジョブに brew のコマンドを出さない
+    func testNonBrewJobGetsLaunchctlAdvice() {
+        let warnings = report([job(.running(pid: 1), .unknown, runs: 2,
+                                   label: "dev.konaito.opttab")]).warnings
+        XCTAssertTrue(warnings.contains { $0.contains("launchctl bootout") })
+        XCTAssertFalse(warnings.contains { $0.contains("brew services restart") })
+    }
+
+    func testBrewJobGetsBrewAdvice() {
+        let warnings = report([job(.running(pid: 1), .unknown, runs: 2,
+                                   label: "homebrew.mxcl.opttab")]).warnings
+        XCTAssertTrue(warnings.contains { $0.contains("brew services restart opttab") })
+        XCTAssertTrue(warnings.contains { $0.contains("opttab.log") })
+    }
+
     // state は読めたが pid が取れなかっただけのときに
     // 「launchd はジョブが走っていないと言っている」と報告してはいけない。
     // 直前の行では running と表示しているので矛盾する

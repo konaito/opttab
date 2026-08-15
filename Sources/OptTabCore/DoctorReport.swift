@@ -144,12 +144,12 @@ public struct DoctorReport: Equatable {
 
         for job in launchdJobs {
             if let signal = job.crashSignal {
-                warnings.append("\(job.label): \(signal)\n"
-                    + "    see why: \(logPathHint)")
+                warnings.append(([("\(job.label): \(signal)")]
+                    + diagnosisAdvice(for: job)).joined(separator: "\n"))
             } else if let signal = job.restartSignal {
-                warnings.append("\(job.label): \(signal)\n"
-                    + "    see why: \(logPathHint)\n"
-                    + "    clear the record: brew services restart opttab")
+                warnings.append(([("\(job.label): \(signal)")]
+                    + diagnosisAdvice(for: job)
+                    + resetAdvice(for: job)).joined(separator: "\n"))
             } else if status != nil, job.state == .notRunning {
                 // 状態ファイルは残っているのに launchd はジョブが走っていないと言う
                 warnings.append(
@@ -180,8 +180,32 @@ public struct DoctorReport: Equatable {
             warnings: warnings)
     }
 
+    /// brew services が作るジョブのラベル。
+    /// これ以外は install-local.sh 等が作った手元のジョブで、
+    /// brew のコマンドも formula が定めたログの置き場所も当てはまらない。
+    public static let brewServiceLabel = "homebrew.mxcl.opttab"
+
     /// formula の service ブロックが指定しているログの置き場所。
     static let logPathHint = "$(brew --prefix)/var/log/opttab.log"
+
+    /// 原因の追い方。ログの場所を知っているのは brew 管理下のジョブだけ。
+    private static func diagnosisAdvice(for job: LaunchdJob) -> [String] {
+        guard job.label == brewServiceLabel else {
+            return ["    see why: the StandardErrorPath in "
+                  + "~/Library/LaunchAgents/\(job.label).plist"]
+        }
+        return ["    see why: \(logPathHint)"]
+    }
+
+    /// 再起動の記録を消す方法。ジョブを作り直さないと runs は戻らない。
+    private static func resetAdvice(for job: LaunchdJob) -> [String] {
+        guard job.label == brewServiceLabel else {
+            return ["    clear the record: launchctl bootout gui/$UID/\(job.label) "
+                  + "&& launchctl bootstrap gui/$UID "
+                  + "~/Library/LaunchAgents/\(job.label).plist"]
+        }
+        return ["    clear the record: brew services restart opttab"]
+    }
 
     /// アクセシビリティはホットキーに必須。画面収録はサムネイル用の任意権限。
     /// クラッシュループや動作中の旧版も、⌥⇥ が実際に効かない状態なので失敗にする。

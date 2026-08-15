@@ -81,6 +81,11 @@ public struct LaunchdJob: Equatable {
     /// 残らない死に方も拾えるため。
     public var restartSignal: String? {
         guard crashSignal == nil else { return nil }
+        // 今止まっているジョブに「死んで復帰した」とは言えない。
+        // その状態は別途「launchd はジョブが走っていないと言っている」で報告する。
+        // isRunning ではなく notRunning で弾くのは、pid が読めなかっただけの
+        // .other("running") から再起動の警告を落とさないため。
+        guard state != .notRunning else { return nil }
 
         let restarts = (runs ?? 1) - 1
         var detail = ""
