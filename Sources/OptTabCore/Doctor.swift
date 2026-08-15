@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 
@@ -44,6 +45,46 @@ public enum Doctor {
         return result
     }
 
+    /// doctor が問い合わせるジョブのラベル。
+    /// brew services 経由と、Scripts/install-local.sh が作る開発用の両方を見る。
+    public static let serviceLabels = ["homebrew.mxcl.opttab", "dev.konaito.opttab"]
+
+    /// 最初に見つかったジョブを返す。読み取り関数を差し替えられるようにしてある。
+    public static func launchdJob(labels: [String],
+                                  printJob: (String) -> String?) -> LaunchdJob? {
+        for label in labels {
+            guard let output = printJob(label),
+                  let job = LaunchctlPrintParser.parse(output, label: label)
+            else { continue }
+            return job
+        }
+        return nil
+    }
+
+    /// `launchctl print gui/<uid>/<label>` を実行して標準出力を返す。
+    /// ジョブが無ければ非ゼロ終了するので nil にする。
+    private static func launchctlPrint(_ label: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["print", "gui/\(getuid())/\(label)"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// 動作中のアプリを NSWorkspace から集める。純ロジックへ渡すための薄い層。
+    private static func runningApps() -> [RunningApp] {
+        NSWorkspace.shared.runningApplications.map {
+            RunningApp(bundleIdentifier: $0.bundleIdentifier,
+                       bundlePath: $0.bundleURL?.path)
+        }
+    }
+
     public static func run() -> Int32 {
         let status = loadStatus(
             candidatePaths: StatusFile.candidatePaths(
@@ -58,10 +99,13 @@ public enum Doctor {
         // シグナル0の送信でプロセスの生存を直接確かめて、その窓を潰す。
         let pidAlive = status.map { kill($0.pid, 0) == 0 } ?? false
 
-        let report = DoctorReport.build(status: status,
-                                        now: Date(),
-                                        pidAlive: pidAlive,
-                                        legacyExisting: existing)
+        let report = DoctorReport.build(
+            status: status,
+            now: Date(),
+            pidAlive: pidAlive,
+            legacyExisting: existing,
+            launchd: launchdJob(labels: serviceLabels, printJob: launchctlPrint),
+            runningLegacyApps: LegacyInstall.runningLegacyApps(runningApps()))
         print(report.render())
         return report.exitCode
     }
