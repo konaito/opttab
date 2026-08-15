@@ -43,6 +43,22 @@ public enum LegacyInstall {
             .filter { existing.contains($0.path) }
             .map { "leftover from the old install: \($0.path)\n    remove it: \($0.advice)" }
     }
+
+    /// 動作中の旧メニューバー版を拾う。
+    ///
+    /// ファイル存在チェックは既知の2ディレクトリしか見ないので、`.app` を
+    /// 別の場所へ移したユーザーを取りこぼす。動いていること自体が
+    /// ⌥⇥ の奪い合いを起こすので、置き場所によらず検出する。
+    /// 新デーモンは非バンドルで bundlePath を持たないため混ざらない。
+    public static func runningLegacyApps(_ apps: [RunningApp]) -> [String] {
+        apps.compactMap { app in
+            guard app.bundleIdentifier == "dev.konaito.opttab",
+                  let path = app.bundlePath,
+                  path.hasSuffix(".app")
+            else { return nil }
+            return path
+        }
+    }
 }
 
 public struct DoctorReport: Equatable {
@@ -60,31 +76,94 @@ public struct DoctorReport: Equatable {
     public let service: Service
     public let accessibility: Bool
     public let screenRecording: Bool
+    /// 問い合わせたラベルのうち、launchd が知っていたジョブ。
+    /// 2つ以上が running なら、それ自体が二重常駐の証拠になる。
+    public let launchdJobs: [LaunchdJob]
+    /// 動作中の旧メニューバー版のバンドルパス。空なら競合していない。
+    public let runningLegacyApps: [String]
     public let warnings: [String]
 
     public init(service: Service,
                 accessibility: Bool,
                 screenRecording: Bool,
+                launchdJobs: [LaunchdJob] = [],
+                runningLegacyApps: [String] = [],
                 warnings: [String]) {
         self.service = service
         self.accessibility = accessibility
         self.screenRecording = screenRecording
+        self.launchdJobs = launchdJobs
+        self.runningLegacyApps = runningLegacyApps
         self.warnings = warnings
+    }
+
+    /// ⌥⇥ が今まさに効かない状態か。持ち回らず、材料から導く。
+    ///
+    /// 残骸「ファイル」は将来問題になりうるだけなので含めない。
+    /// 過去に落ちて復帰済みのサービスも含めない（今は動いている）。
+    public var unhealthy: Bool {
+        !runningLegacyApps.isEmpty
+            || launchdJobs.contains { $0.crashSignal != nil }
+            || launchdJobs.filter(\.isRunning).count > 1
     }
 
     /// - Parameter pidAlive: status.json の pid が生きているか。
     ///   ハートビートの鮮度だけでは、停止直後の最大30秒を取りこぼす。
     ///   判定に使う値は呼び出し側（Doctor）が観測して渡す。
+    /// - Parameter launchdJobs: 問い合わせた各ラベルについて launchd が知っていたジョブ。
+    /// - Parameter runningLegacyApps: 動作中の旧メニューバー版のバンドルパス。
     public static func build(status: DaemonStatus?,
                              now: Date,
                              pidAlive: Bool,
-                             legacyExisting: Set<String>) -> DoctorReport {
-        let warnings = LegacyInstall.warnings(existing: legacyExisting)
+                             legacyExisting: Set<String>,
+                             launchdJobs: [LaunchdJob] = [],
+                             runningLegacyApps: [String] = []) -> DoctorReport {
+        var warnings = LegacyInstall.warnings(existing: legacyExisting)
+
+        // 動作中の旧版は ⌥⇥ を実際に奪い合う。残骸ファイルと違い今そこにある障害。
+        // .app は移動されている可能性があるので、cask 前提の助言だけにはしない
+        for path in runningLegacyApps {
+            warnings.append(
+                "the old menu bar app is RUNNING: \(path)\n"
+                + "    it installs a second event tap and will fight over ⌥⇥\n"
+                + "    quit it, then remove it: brew uninstall --cask opttab "
+                + "(or delete the bundle if it was moved)")
+        }
+
+        // 2つのラベルが同時に走る＝brew services と install-local.sh の二重常駐。
+        // 状態ファイルは片方しか映さないので、ここでしか見えない
+        let running = launchdJobs.filter(\.isRunning)
+        if running.count > 1 {
+            warnings.append(
+                "two launchd jobs are running the daemon: "
+                + running.map(\.label).joined(separator: ", ") + "\n"
+                + "    they install two event taps and will fight over ⌥⇥\n"
+                + "    keep one: brew services stop opttab, or "
+                + "launchctl bootout gui/$UID/dev.konaito.opttab")
+        }
+
+        for job in launchdJobs {
+            if let signal = job.crashSignal {
+                warnings.append(([("\(job.label): \(signal)")]
+                    + diagnosisAdvice(for: job)).joined(separator: "\n"))
+            } else if let signal = job.restartSignal {
+                warnings.append(([("\(job.label): \(signal)")]
+                    + diagnosisAdvice(for: job)
+                    + resetAdvice(for: job)).joined(separator: "\n"))
+            } else if status != nil, job.state == .notRunning {
+                // 状態ファイルは残っているのに launchd はジョブが走っていないと言う
+                warnings.append(
+                    "\(job.label): launchd does not report a running job, "
+                    + "but a status file is present")
+            }
+        }
 
         guard let status else {
             return DoctorReport(service: .statusUnavailable,
                                 accessibility: false,
                                 screenRecording: false,
+                                launchdJobs: launchdJobs,
+                                runningLegacyApps: runningLegacyApps,
                                 warnings: warnings)
         }
 
@@ -96,11 +175,42 @@ public struct DoctorReport: Equatable {
                 : .notRunning,
             accessibility: status.accessibility,
             screenRecording: status.screenRecording,
+            launchdJobs: launchdJobs,
+            runningLegacyApps: runningLegacyApps,
             warnings: warnings)
     }
 
+    /// brew services が作るジョブのラベル。
+    /// これ以外は install-local.sh 等が作った手元のジョブで、
+    /// brew のコマンドも formula が定めたログの置き場所も当てはまらない。
+    public static let brewServiceLabel = "homebrew.mxcl.opttab"
+
+    /// formula の service ブロックが指定しているログの置き場所。
+    static let logPathHint = "$(brew --prefix)/var/log/opttab.log"
+
+    /// 原因の追い方。ログの場所を知っているのは brew 管理下のジョブだけ。
+    private static func diagnosisAdvice(for job: LaunchdJob) -> [String] {
+        guard job.label == brewServiceLabel else {
+            return ["    see why: the StandardErrorPath in "
+                  + "~/Library/LaunchAgents/\(job.label).plist"]
+        }
+        return ["    see why: \(logPathHint)"]
+    }
+
+    /// 再起動の記録を消す方法。ジョブを作り直さないと runs は戻らない。
+    private static func resetAdvice(for job: LaunchdJob) -> [String] {
+        guard job.label == brewServiceLabel else {
+            return ["    clear the record: launchctl bootout gui/$UID/\(job.label) "
+                  + "&& launchctl bootstrap gui/$UID "
+                  + "~/Library/LaunchAgents/\(job.label).plist"]
+        }
+        return ["    clear the record: brew services restart opttab"]
+    }
+
     /// アクセシビリティはホットキーに必須。画面収録はサムネイル用の任意権限。
+    /// クラッシュループや動作中の旧版も、⌥⇥ が実際に効かない状態なので失敗にする。
     public var exitCode: Int32 {
+        if unhealthy { return 1 }
         switch service {
         case .running:
             return accessibility ? 0 : 1
@@ -125,6 +235,16 @@ public struct DoctorReport: Equatable {
             lines.append("service:          not running (no status file)")
             lines.append("  start it:       brew services start opttab")
             permissionsKnown = false
+        }
+
+        // launchd 側の見え方は状態ファイルとは独立した2つ目の証拠。
+        // 食い違っていることそのものが情報なので、一致していても必ず出す。
+        if launchdJobs.isEmpty {
+            lines.append("launchd:          unknown (no loaded job found)")
+        } else {
+            for job in launchdJobs {
+                lines.append("launchd:          \(job.label) — \(job.stateDescription)")
+            }
         }
 
         if permissionsKnown {
